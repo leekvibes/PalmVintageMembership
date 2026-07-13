@@ -59,6 +59,7 @@ export function DashboardClient({
   businessHours,
 }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<"overview" | "book" | "trips" | "account">("overview");
+  const [rescheduleBooking, setRescheduleBooking] = useState<DashboardProps["bookings"][0] | null>(null);
 
   const programLabel =
     membership?.program === "chauffeur"
@@ -219,70 +220,313 @@ export function DashboardClient({
         )}
 
         {activeTab === "book" && (
-          <BookingForm businessHours={businessHours} />
+          <div>
+            {rescheduleBooking && (
+              <div className="bg-gold/10 border border-gold/30 p-4 mb-6 flex items-center justify-between">
+                <p className="text-sm text-gold">
+                  Rescheduling ride from{" "}
+                  {new Date(rescheduleBooking.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  {" "}at {rescheduleBooking.pickupTime}. Choose a new date and time below.
+                </p>
+                <button onClick={() => setRescheduleBooking(null)} className="text-xs text-cream/40 hover:text-cream/70 ml-4">
+                  &times;
+                </button>
+              </div>
+            )}
+            <BookingForm
+              businessHours={businessHours}
+              prefill={rescheduleBooking ? {
+                pickupAddress: rescheduleBooking.pickupAddress,
+                dropoffAddress: rescheduleBooking.dropoffAddress || "",
+                vehicleRequest: rescheduleBooking.vehicleRequest || "",
+                passengers: rescheduleBooking.passengers,
+              } : undefined}
+            />
+          </div>
         )}
 
         {activeTab === "trips" && (
-          <TripsTab bookings={bookings} />
+          <TripsTab
+            bookings={bookings}
+            onReschedule={async (booking) => {
+              await fetch(`/api/bookings/${booking.id}/cancel`, { method: "POST" });
+              setRescheduleBooking(booking);
+              setActiveTab("book");
+            }}
+          />
         )}
 
         {activeTab === "account" && (
-          <div className="max-w-lg space-y-8">
-            <div className="flex items-center gap-6">
-              {user.photoUrl ? (
-                <img
-                  src={user.photoUrl}
-                  alt={user.name}
-                  className="w-28 h-28 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5"
-                />
-              ) : (
-                <div className="w-28 h-28 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-3xl font-mono shadow-lg shadow-gold/5">
-                  {user.name.charAt(0)}
-                </div>
-              )}
-              <div>
-                <h2 className="text-xl font-light">{user.name}</h2>
-                <p className="text-cream/50 text-sm">{user.email}</p>
-                {user.phone && (
-                  <p className="text-cream/50 text-sm">{user.phone}</p>
-                )}
-              </div>
-            </div>
-
-            {membership && (
-              <div className="bg-cream/5 border border-cream/10 p-6 space-y-3">
-                <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70 mb-3">
-                  Membership Details
-                </h3>
-                <Row label="Program" value={programLabel} />
-                <Row label="Status" value={membership.status} />
-                <Row
-                  label="Start Date"
-                  value={new Date(membership.startDate).toLocaleDateString()}
-                />
-                <Row
-                  label="Guest Passes Used"
-                  value={`${membership.guestPassesUsed} this term`}
-                />
-                <Row
-                  label="Members on Account"
-                  value={String(membership.guests.length + 1)}
-                />
-              </div>
-            )}
-          </div>
+          <AccountTab user={user} membership={membership} programLabel={programLabel} />
         )}
       </div>
     </div>
   );
 }
 
-/* ─── Trips Tab with Vehicle Condition ─── */
-function TripsTab({ bookings }: { bookings: DashboardProps["bookings"] }) {
+/* ─── Account Tab ─── */
+function AccountTab({
+  user,
+  membership,
+  programLabel,
+}: {
+  user: DashboardProps["user"];
+  membership: DashboardProps["membership"];
+  programLabel: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: user.name, phone: user.phone || "", photoUrl: user.photoUrl || "" });
+
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwMsg, setPwMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+
+  async function handleSaveProfile() {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-profile", ...form }),
+      });
+      if (res.ok) {
+        setSaveMsg("Profile updated.");
+        setEditing(false);
+        setTimeout(() => window.location.reload(), 800);
+      } else {
+        const data = await res.json();
+        setSaveMsg(data.error || "Failed to update.");
+      }
+    } catch {
+      setSaveMsg("Failed to update.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleChangePassword() {
+    setPwMsg(null);
+    if (pwForm.newPassword !== pwForm.confirmPassword) {
+      setPwMsg({ type: "error", text: "New passwords do not match." });
+      return;
+    }
+    if (pwForm.newPassword.length < 8) {
+      setPwMsg({ type: "error", text: "New password must be at least 8 characters." });
+      return;
+    }
+    setPwSaving(true);
+    try {
+      const res = await fetch("/api/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "change-password",
+          currentPassword: pwForm.currentPassword,
+          newPassword: pwForm.newPassword,
+        }),
+      });
+      if (res.ok) {
+        setPwMsg({ type: "success", text: "Password changed." });
+        setPwForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+        setChangingPassword(false);
+      } else {
+        const data = await res.json();
+        setPwMsg({ type: "error", text: data.error || "Failed to change password." });
+      }
+    } catch {
+      setPwMsg({ type: "error", text: "Failed to change password." });
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
+  const inputClass = "w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors";
+  const labelClass = "block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2";
+
+  return (
+    <div className="max-w-lg space-y-8">
+      {/* Profile header */}
+      <div className="flex items-center gap-6">
+        {editing ? (
+          <>
+            {form.photoUrl ? (
+              <img src={form.photoUrl} alt={form.name} className="w-28 h-28 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5" />
+            ) : (
+              <div className="w-28 h-28 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-3xl font-mono shadow-lg shadow-gold/5">
+                {form.name.charAt(0)}
+              </div>
+            )}
+            <div className="flex-1 space-y-3">
+              <div>
+                <label className={labelClass}>Name</label>
+                <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Phone</label>
+                <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inputClass} placeholder="(555) 000-0000" />
+              </div>
+              <div>
+                <label className={labelClass}>Profile Photo</label>
+                <label className="block border border-dashed border-cream/30 hover:border-gold/50 px-3 py-2 text-center cursor-pointer transition-colors">
+                  <span className="text-xs text-cream/50">Choose photo...</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => setForm({ ...form, photoUrl: reader.result as string });
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {user.photoUrl ? (
+              <img src={user.photoUrl} alt={user.name} className="w-28 h-28 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5" />
+            ) : (
+              <div className="w-28 h-28 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-3xl font-mono shadow-lg shadow-gold/5">
+                {user.name.charAt(0)}
+              </div>
+            )}
+            <div>
+              <h2 className="text-xl font-light">{user.name}</h2>
+              <p className="text-cream/50 text-sm">{user.email}</p>
+              {user.phone && <p className="text-cream/50 text-sm">{user.phone}</p>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Edit / Save buttons */}
+      <div className="flex gap-3">
+        {!editing ? (
+          <>
+            <button
+              onClick={() => setEditing(true)}
+              className="border border-gold/50 text-gold px-5 py-2.5 text-sm uppercase tracking-[0.12em] hover:bg-gold/10 transition-colors"
+            >
+              Edit Profile
+            </button>
+            <button
+              onClick={() => setChangingPassword(!changingPassword)}
+              className="border border-cream/20 text-cream/50 px-5 py-2.5 text-sm uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
+            >
+              Change Password
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={handleSaveProfile}
+              disabled={saving}
+              className="border border-green-400/50 text-green-400 px-5 py-2.5 text-sm uppercase tracking-[0.12em] hover:bg-green-400/10 transition-colors disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+            <button
+              onClick={() => { setEditing(false); setForm({ name: user.name, phone: user.phone || "", photoUrl: user.photoUrl || "" }); }}
+              className="border border-cream/20 text-cream/50 px-5 py-2.5 text-sm uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+
+      {saveMsg && (
+        <p className="text-sm text-green-400">{saveMsg}</p>
+      )}
+
+      {/* Change Password Form */}
+      {changingPassword && (
+        <div className="bg-cream/5 border border-cream/10 p-6 space-y-4">
+          <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70 mb-2">Change Password</h3>
+          <div>
+            <label className={labelClass}>Current Password</label>
+            <input
+              type="password"
+              value={pwForm.currentPassword}
+              onChange={(e) => setPwForm({ ...pwForm, currentPassword: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>New Password</label>
+            <input
+              type="password"
+              value={pwForm.newPassword}
+              onChange={(e) => setPwForm({ ...pwForm, newPassword: e.target.value })}
+              className={inputClass}
+              placeholder="At least 8 characters"
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Confirm New Password</label>
+            <input
+              type="password"
+              value={pwForm.confirmPassword}
+              onChange={(e) => setPwForm({ ...pwForm, confirmPassword: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          {pwMsg && (
+            <p className={`text-sm ${pwMsg.type === "success" ? "text-green-400" : "text-red-400"}`}>
+              {pwMsg.text}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={handleChangePassword}
+              disabled={pwSaving}
+              className="border border-gold/50 text-gold px-5 py-2.5 text-sm uppercase tracking-[0.12em] hover:bg-gold/10 transition-colors disabled:opacity-50"
+            >
+              {pwSaving ? "Updating..." : "Update Password"}
+            </button>
+            <button
+              onClick={() => { setChangingPassword(false); setPwMsg(null); }}
+              className="border border-cream/20 text-cream/50 px-5 py-2.5 text-sm uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Membership Details */}
+      {membership && (
+        <div className="bg-cream/5 border border-cream/10 p-6 space-y-3">
+          <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70 mb-3">
+            Membership Details
+          </h3>
+          <Row label="Program" value={programLabel} />
+          <Row label="Status" value={membership.status} />
+          <Row label="Start Date" value={new Date(membership.startDate).toLocaleDateString()} />
+          <Row label="Guest Passes Used" value={`${membership.guestPassesUsed} this term`} />
+          <Row label="Members on Account" value={String(membership.guests.length + 1)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Trips Tab with Vehicle Condition + Cancel/Reschedule ─── */
+function TripsTab({ bookings, onReschedule }: { bookings: DashboardProps["bookings"]; onReschedule?: (booking: DashboardProps["bookings"][0]) => void }) {
   const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
   const [inspections, setInspections] = useState<Record<string, Inspection[]>>({});
   const [loadingInspection, setLoadingInspection] = useState<string | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<{ src: string; caption: string | null } | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelConfirm, setCancelConfirm] = useState<string | null>(null);
 
   async function toggleCondition(bookingId: string) {
     if (expandedBooking === bookingId) {
@@ -308,6 +552,21 @@ function TripsTab({ bookings }: { bookings: DashboardProps["bookings"] }) {
     }
   }
 
+  async function handleCancel(bookingId: string) {
+    setCancellingId(bookingId);
+    try {
+      const res = await fetch(`/api/bookings/${bookingId}/cancel`, { method: "POST" });
+      if (res.ok) {
+        window.location.reload();
+      }
+    } catch {
+      // silent
+    } finally {
+      setCancellingId(null);
+      setCancelConfirm(null);
+    }
+  }
+
   return (
     <div>
       <h2 className="text-lg font-light mb-6">All Trips</h2>
@@ -326,20 +585,27 @@ function TripsTab({ bookings }: { bookings: DashboardProps["bookings"] }) {
                       day: "numeric",
                     })}{" "}
                     at {b.pickupTime}
+                    {b.returnTime && ` – ${b.returnTime}`}
                   </p>
                   <p className="text-xs text-cream/40 truncate">
                     {b.pickupAddress}
                   </p>
+                  {b.vehicleRequest && (
+                    <p className="text-xs text-cream/30 mt-0.5">
+                      Requested: {b.vehicleRequest === "rolls_royce" ? "Rolls-Royce" : "Escalade"}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right flex items-center gap-3">
                   <div>
                     <p className={`text-xs uppercase tracking-wider ${
                       b.status === "pending" ? "text-yellow-400" :
                       b.status === "confirmed" ? "text-green-400" :
+                      b.status === "in_progress" ? "text-blue-400" :
                       b.status === "completed" ? "text-cream/40" :
                       "text-red-400"
                     }`}>
-                      {b.status}
+                      {b.status === "in_progress" ? "In Progress" : b.status}
                     </p>
                     {b.vehicleAssigned && (
                       <p className="text-xs text-cream/30 mt-0.5">
@@ -347,7 +613,7 @@ function TripsTab({ bookings }: { bookings: DashboardProps["bookings"] }) {
                       </p>
                     )}
                   </div>
-                  {(b.status === "confirmed" || b.status === "completed") && (
+                  {(b.status === "confirmed" || b.status === "completed" || b.status === "in_progress") && (
                     <button
                       onClick={() => toggleCondition(b.id)}
                       className={`text-[11px] border px-2.5 py-1.5 transition-colors ${
@@ -361,6 +627,47 @@ function TripsTab({ bookings }: { bookings: DashboardProps["bookings"] }) {
                   )}
                 </div>
               </div>
+
+              {/* Cancel / Reschedule actions */}
+              {(b.status === "pending" || b.status === "confirmed") && (
+                <div className="px-4 pb-3 flex gap-2">
+                  {cancelConfirm === b.id ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-cream/50">Cancel this ride?</span>
+                      <button
+                        onClick={() => handleCancel(b.id)}
+                        disabled={cancellingId === b.id}
+                        className="text-[11px] border border-red-400/50 text-red-400 px-2.5 py-1 hover:bg-red-400/10 transition-colors disabled:opacity-50"
+                      >
+                        {cancellingId === b.id ? "Cancelling..." : "Yes, Cancel"}
+                      </button>
+                      <button
+                        onClick={() => setCancelConfirm(null)}
+                        className="text-[11px] border border-cream/20 text-cream/50 px-2.5 py-1 hover:bg-cream/10 transition-colors"
+                      >
+                        No, Keep
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setCancelConfirm(b.id)}
+                        className="text-[11px] border border-red-400/30 text-red-400/70 px-2.5 py-1 hover:bg-red-400/10 hover:text-red-400 transition-colors"
+                      >
+                        Cancel Ride
+                      </button>
+                      {onReschedule && (
+                        <button
+                          onClick={() => onReschedule(b)}
+                          className="text-[11px] border border-cream/20 text-cream/50 px-2.5 py-1 hover:bg-cream/10 hover:text-cream/70 transition-colors"
+                        >
+                          Reschedule
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Expanded vehicle condition */}
               {expandedBooking === b.id && (

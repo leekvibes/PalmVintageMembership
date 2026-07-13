@@ -12,7 +12,7 @@ export async function PATCH(
   }
 
   const admin = await prisma.user.findUnique({ where: { id: session.user.id } });
-  if (!admin || admin.role !== "admin") {
+  if (!admin || (admin.role !== "admin" && admin.role !== "driver")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

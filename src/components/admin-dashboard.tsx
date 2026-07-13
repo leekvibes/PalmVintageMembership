@@ -445,12 +445,14 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
                   ? "bg-yellow-400/10 text-yellow-400"
                   : b.status === "confirmed"
                   ? "bg-green-400/10 text-green-400"
+                  : b.status === "in_progress"
+                  ? "bg-blue-400/10 text-blue-400"
                   : b.status === "completed"
                   ? "bg-cream/10 text-cream/40"
                   : "bg-red-400/10 text-red-400"
               }`}
             >
-              {b.status}
+              {b.status === "in_progress" ? "In Progress" : b.status}
             </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-cream/70 mb-4">
@@ -480,54 +482,80 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
             <span className="text-cream/40">{b.passengers} pax</span>
           </div>
 
-          {/* Vehicle Condition Actions */}
-          {(b.status === "confirmed" || b.status === "completed") && (
-            <div className="flex gap-3 mt-4 pt-4 border-t border-cream/10">
-              <button
-                onClick={() => setInspectionBookingId(b.id)}
-                className="text-xs border border-gold/50 text-gold px-3 py-1.5 hover:bg-gold/10 transition-colors"
-              >
-                Upload Condition Photos
-              </button>
-              <button
-                onClick={() => viewInspections(b.id)}
-                className="text-xs border border-cream/20 text-cream/50 px-3 py-1.5 hover:bg-cream/10 transition-colors"
-              >
-                View Photos
-              </button>
-              {!isDriver && b.status === "confirmed" && (
+          {/* Status workflow + condition actions */}
+          <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-cream/10">
+            {/* Pending → Confirm or Cancel */}
+            {!isDriver && b.status === "pending" && (
+              <>
                 <button
-                  onClick={() => updateStatus(b.id, "completed")}
-                  className="text-xs border border-cream/30 text-cream/60 px-3 py-1.5 hover:bg-cream/10 transition-colors ml-auto"
+                  onClick={() => updateStatus(b.id, "confirmed", b.vehicleRequest || "rolls_royce")}
+                  className="text-xs border border-green-400/50 text-green-400 px-3 py-1.5 hover:bg-green-400/10 transition-colors"
                 >
-                  Mark Completed
+                  Confirm (Rolls-Royce)
                 </button>
-              )}
-            </div>
-          )}
+                <button
+                  onClick={() => updateStatus(b.id, "confirmed", "escalade")}
+                  className="text-xs border border-green-400/50 text-green-400 px-3 py-1.5 hover:bg-green-400/10 transition-colors"
+                >
+                  Confirm (Escalade)
+                </button>
+                <button
+                  onClick={() => updateStatus(b.id, "cancelled")}
+                  className="text-xs border border-red-400/50 text-red-400 px-3 py-1.5 hover:bg-red-400/10 transition-colors"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
 
-          {!isDriver && b.status === "pending" && (
-            <div className="flex gap-3 mt-4 pt-4 border-t border-cream/10">
+            {/* Confirmed → In Progress or Cancel */}
+            {b.status === "confirmed" && (
+              <>
+                <button
+                  onClick={() => updateStatus(b.id, "in_progress")}
+                  className="text-xs border border-blue-400/50 text-blue-400 px-3 py-1.5 hover:bg-blue-400/10 transition-colors"
+                >
+                  Start Ride
+                </button>
+                {!isDriver && (
+                  <button
+                    onClick={() => updateStatus(b.id, "cancelled")}
+                    className="text-xs border border-red-400/50 text-red-400 px-3 py-1.5 hover:bg-red-400/10 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* In Progress → Completed */}
+            {b.status === "in_progress" && (
               <button
-                onClick={() => updateStatus(b.id, "confirmed", b.vehicleRequest || "rolls_royce")}
-                className="text-xs border border-green-400/50 text-green-400 px-3 py-1.5 hover:bg-green-400/10 transition-colors"
+                onClick={() => updateStatus(b.id, "completed")}
+                className="text-xs border border-cream/30 text-cream/60 px-3 py-1.5 hover:bg-cream/10 transition-colors"
               >
-                Confirm (Rolls-Royce)
+                Complete Ride
               </button>
-              <button
-                onClick={() => updateStatus(b.id, "confirmed", "escalade")}
-                className="text-xs border border-green-400/50 text-green-400 px-3 py-1.5 hover:bg-green-400/10 transition-colors"
-              >
-                Confirm (Escalade)
-              </button>
-              <button
-                onClick={() => updateStatus(b.id, "cancelled")}
-                className="text-xs border border-red-400/50 text-red-400 px-3 py-1.5 hover:bg-red-400/10 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
+            )}
+
+            {/* Condition photo actions for confirmed, in_progress, and completed */}
+            {(b.status === "confirmed" || b.status === "in_progress" || b.status === "completed") && (
+              <>
+                <button
+                  onClick={() => setInspectionBookingId(b.id)}
+                  className="text-xs border border-gold/50 text-gold px-3 py-1.5 hover:bg-gold/10 transition-colors ml-auto"
+                >
+                  Upload Condition Photos
+                </button>
+                <button
+                  onClick={() => viewInspections(b.id)}
+                  className="text-xs border border-cream/20 text-cream/50 px-3 py-1.5 hover:bg-cream/10 transition-colors"
+                >
+                  View Photos
+                </button>
+              </>
+            )}
+          </div>
 
           {/* Inline inspection viewer */}
           {viewingInspections?.bookingId === b.id && (

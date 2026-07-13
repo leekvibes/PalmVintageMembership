@@ -4,6 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 
 interface BookingFormProps {
   businessHours: { open: string; close: string };
+  prefill?: {
+    pickupAddress: string;
+    dropoffAddress: string;
+    vehicleRequest: string;
+    passengers: number;
+  };
 }
 
 interface VehicleAvailability {
@@ -13,13 +19,13 @@ interface VehicleAvailability {
   available: boolean;
 }
 
-export function BookingForm({ businessHours }: BookingFormProps) {
+export function BookingForm({ businessHours, prefill }: BookingFormProps) {
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [date, setDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
-  const [vehicleRequest, setVehicleRequest] = useState("");
+  const [vehicleRequest, setVehicleRequest] = useState(prefill?.vehicleRequest || "");
   const [availability, setAvailability] = useState<VehicleAvailability[] | null>(null);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
 
@@ -175,6 +181,7 @@ export function BookingForm({ businessHours }: BookingFormProps) {
             type="text"
             name="pickupAddress"
             required
+            defaultValue={prefill?.pickupAddress}
             placeholder="Full street address"
             className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
           />
@@ -188,6 +195,7 @@ export function BookingForm({ businessHours }: BookingFormProps) {
             type="text"
             name="dropoffAddress"
             required
+            defaultValue={prefill?.dropoffAddress}
             placeholder="Full street address for return trip"
             className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
           />
@@ -224,7 +232,7 @@ export function BookingForm({ businessHours }: BookingFormProps) {
               name="passengers"
               min="1"
               max="6"
-              defaultValue="1"
+              defaultValue={prefill?.passengers || 1}
               className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors"
             />
           </div>
