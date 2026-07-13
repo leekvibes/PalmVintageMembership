@@ -12,18 +12,23 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const form = new FormData(e.currentTarget);
-    const result = await signIn("credentials", {
-      email: form.get("email"),
-      password: form.get("password"),
-      redirect: false,
-    });
+    try {
+      const form = new FormData(e.currentTarget);
+      const result = await signIn("credentials", {
+        email: form.get("email"),
+        password: form.get("password"),
+        redirect: false,
+      });
 
-    if (result?.error) {
+      if (result?.error) {
+        setError("Invalid email or password");
+        setLoading(false);
+      } else {
+        window.location.href = "/dashboard";
+      }
+    } catch {
       setError("Invalid email or password");
       setLoading(false);
-    } else {
-      window.location.href = "/dashboard";
     }
   }
 
