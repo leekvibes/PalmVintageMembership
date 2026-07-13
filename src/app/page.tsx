@@ -189,8 +189,8 @@ export default function MembershipPage() {
 
             <div className="aspect-[4/5] overflow-hidden">
               <img
-                src="/images/rolls-royce-4.jpg"
-                alt="Rolls-Royce Phantom at golden hour"
+                src="/images/rolls-royce-1.jpg"
+                alt="Rolls-Royce Phantom — Palm Vintage fleet"
                 className="w-full h-full object-cover"
               />
             </div>
@@ -267,8 +267,12 @@ export default function MembershipPage() {
               </p>
             </div>
             <div className="relative">
-              <div className="aspect-[4/3] bg-navy-darkest/5 flex items-center justify-center text-navy/20 font-body text-sm italic">
-                Cadillac Escalade — photo coming soon
+              <div className="aspect-[4/3] overflow-hidden">
+                <img
+                  src="/images/escalade.jpg"
+                  alt="Cadillac Escalade"
+                  className="w-full h-full object-cover"
+                />
               </div>
               <p className="font-serif text-navy-darkest uppercase tracking-[0.1em] text-sm mt-4">
                 Cadillac Escalade
