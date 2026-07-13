@@ -12,8 +12,9 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
+    const form = new FormData(e.currentTarget);
+
     try {
-      const form = new FormData(e.currentTarget);
       const result = await signIn("credentials", {
         email: form.get("email"),
         password: form.get("password"),
