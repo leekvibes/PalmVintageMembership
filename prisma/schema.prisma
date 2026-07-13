@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  photoUrl      String?
+  role          String    @default("member")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  membership    Membership?
+  bookings      Booking[]
+}
+
+model Membership {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program         String
+  status          String   @default("active")
+  startDate       DateTime
+  endDate         DateTime?
+  guestPassesUsed Int      @default(0)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  guests          MembershipGuest[]
+}
+
+model MembershipGuest {
+  id           String     @id @default(cuid())
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  name         String
+  phone        String?
+  email        String?
+  createdAt    DateTime   @default(now())
+}
+
+model Booking {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date            DateTime
+  pickupTime      String
+  returnTime      String?
+  pickupAddress   String
+  dropoffAddress  String?
+  vehicleRequest  String?
+  vehicleAssigned String?
+  status          String   @default("pending")
+  passengers      Int      @default(1)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Inquiry {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  program   String
+  message   String?
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+}
