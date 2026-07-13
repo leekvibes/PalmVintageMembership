@@ -363,14 +363,31 @@ function MemberProfile({ memberId, onBack }: { memberId: string; onBack: () => v
                   </div>
                 )}
                 <div>
-                  <label className={labelClass}>Photo URL</label>
-                  <input
-                    type="url"
-                    value={form.photoUrl}
-                    onChange={(e) => setForm({ ...form, photoUrl: e.target.value })}
-                    className={inputClass}
-                    placeholder="https://..."
-                  />
+                  <label className={labelClass}>Profile Photo</label>
+                  <label className="block w-full border border-dashed border-cream/30 hover:border-gold/50 px-4 py-3 text-center cursor-pointer transition-colors">
+                    <span className="text-sm text-cream/50">Choose photo...</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => setForm({ ...form, photoUrl: reader.result as string });
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </label>
+                  {form.photoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, photoUrl: "" })}
+                      className="text-xs text-red-400/70 hover:text-red-400 mt-1"
+                    >
+                      Remove photo
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
