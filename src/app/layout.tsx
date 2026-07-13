@@ -59,7 +59,7 @@ export default function RootLayout({
                 href="/login"
                 className="text-[13px] tracking-[0.08em] text-navy bg-navy/5 hover:bg-navy/10 px-4 py-2 rounded-full transition-colors font-sans font-medium"
               >
-                PM
+                LOG IN
               </a>
             </div>
           </div>

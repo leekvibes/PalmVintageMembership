@@ -63,22 +63,22 @@ export function DashboardClient({
   return (
     <div className="min-h-screen bg-navy-darkest text-cream">
       {/* Header */}
-      <header className="border-b border-cream/10 px-6 py-4">
+      <header className="border-b border-cream/10 px-6 py-5">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-5">
             {user.photoUrl ? (
               <img
                 src={user.photoUrl}
                 alt={user.name}
-                className="w-10 h-10 rounded-full object-cover border border-gold/30"
+                className="w-16 h-16 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5"
               />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-navy-deep border border-gold/30 flex items-center justify-center text-gold text-sm font-mono">
+              <div className="w-16 h-16 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-xl font-mono shadow-lg shadow-gold/5">
                 {user.name.charAt(0)}
               </div>
             )}
             <div>
-              <p className="text-sm font-medium">{user.name}</p>
+              <p className="text-base font-medium">{user.name}</p>
               <p className="text-xs text-cream/40">{programLabel}</p>
             </div>
           </div>
@@ -114,6 +114,26 @@ export function DashboardClient({
       <div className="max-w-5xl mx-auto px-6 py-10">
         {activeTab === "overview" && (
           <div className="space-y-10">
+            {/* Welcome banner */}
+            <div className="flex items-center gap-6 bg-cream/5 border border-cream/10 p-6">
+              {user.photoUrl ? (
+                <img
+                  src={user.photoUrl}
+                  alt={user.name}
+                  className="w-24 h-24 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5"
+                />
+              ) : (
+                <div className="w-24 h-24 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-3xl font-mono shadow-lg shadow-gold/5">
+                  {user.name.charAt(0)}
+                </div>
+              )}
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-cream/40 mb-1">Welcome back</p>
+                <h1 className="text-2xl font-light tracking-tight">{user.name}</h1>
+                <p className="text-sm text-gold/70 mt-1">{programLabel}</p>
+              </div>
+            </div>
+
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatCard label="Total Trips" value={String(totalTrips)} />
@@ -208,10 +228,10 @@ export function DashboardClient({
                 <img
                   src={user.photoUrl}
                   alt={user.name}
-                  className="w-20 h-20 rounded-full object-cover border border-gold/30"
+                  className="w-28 h-28 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5"
                 />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-navy-deep border border-gold/30 flex items-center justify-center text-gold text-2xl font-mono">
+                <div className="w-28 h-28 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-3xl font-mono shadow-lg shadow-gold/5">
                   {user.name.charAt(0)}
                 </div>
               )}
