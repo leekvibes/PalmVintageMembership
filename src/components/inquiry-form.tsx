@@ -32,25 +32,25 @@ export function InquiryForm() {
   if (status === "sent") {
     return (
       <div className="text-center py-12">
-        <div className="w-16 h-16 rounded-full border border-gold/40 flex items-center justify-center mx-auto mb-6">
-          <span className="text-gold text-2xl">&#10003;</span>
-        </div>
-        <h3 className="text-2xl font-light mb-3">Thank you</h3>
-        <p className="text-cream/60">
+        <div className="w-16 h-px bg-gold/40 mx-auto mb-8" />
+        <p className="font-script text-gold text-3xl mb-4">Thank you</p>
+        <p className="font-body text-cream/60">
           A member of our team will be in touch shortly.
         </p>
       </div>
     );
   }
 
+  const inputClass =
+    "w-full bg-cream/5 border border-cream/15 px-4 py-3.5 text-cream font-body placeholder:text-cream/25 focus:outline-none focus:border-gold/40 transition-colors";
+  const labelClass =
+    "block text-[11px] uppercase tracking-[0.14em] text-cream/40 mb-2 font-sans";
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6 text-left">
       <div className="grid md:grid-cols-2 gap-6">
         <div>
-          <label
-            htmlFor="name"
-            className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2"
-          >
+          <label htmlFor="name" className={labelClass}>
             Full Name *
           </label>
           <input
@@ -58,15 +58,12 @@ export function InquiryForm() {
             id="name"
             name="name"
             required
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
+            className={inputClass}
             placeholder="Your name"
           />
         </div>
         <div>
-          <label
-            htmlFor="email"
-            className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2"
-          >
+          <label htmlFor="email" className={labelClass}>
             Email *
           </label>
           <input
@@ -74,7 +71,7 @@ export function InquiryForm() {
             id="email"
             name="email"
             required
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
+            className={inputClass}
             placeholder="your@email.com"
           />
         </div>
@@ -82,32 +79,26 @@ export function InquiryForm() {
 
       <div className="grid md:grid-cols-2 gap-6">
         <div>
-          <label
-            htmlFor="phone"
-            className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2"
-          >
+          <label htmlFor="phone" className={labelClass}>
             Phone
           </label>
           <input
             type="tel"
             id="phone"
             name="phone"
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
+            className={inputClass}
             placeholder="(555) 000-0000"
           />
         </div>
         <div>
-          <label
-            htmlFor="program"
-            className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2"
-          >
+          <label htmlFor="program" className={labelClass}>
             Program Interest *
           </label>
           <select
             id="program"
             name="program"
             required
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors appearance-none"
+            className={`${inputClass} appearance-none`}
           >
             <option value="" className="bg-navy-darkest">
               Select a program
@@ -126,23 +117,20 @@ export function InquiryForm() {
       </div>
 
       <div>
-        <label
-          htmlFor="message"
-          className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2"
-        >
+        <label htmlFor="message" className={labelClass}>
           Message / Preferred Dates
         </label>
         <textarea
           id="message"
           name="message"
           rows={4}
-          className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors resize-none"
+          className={`${inputClass} resize-none`}
           placeholder="Tell us about your interest, preferred dates, or any questions..."
         />
       </div>
 
       {status === "error" && (
-        <p className="text-red-400 text-sm">
+        <p className="text-red-400 text-sm font-body">
           Something went wrong. Please try again or email us directly.
         </p>
       )}
@@ -150,7 +138,7 @@ export function InquiryForm() {
       <button
         type="submit"
         disabled={status === "sending"}
-        className="w-full border border-gold/60 text-gold px-8 py-4 text-sm uppercase tracking-[0.14em] hover:bg-gold/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full border border-gold/50 text-gold font-serif text-sm uppercase tracking-[0.15em] px-8 py-4 hover:bg-gold/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {status === "sending" ? "Submitting..." : "Submit Inquiry"}
       </button>
