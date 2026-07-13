@@ -20,6 +20,7 @@ interface AdminProps {
     userEmail: string;
     date: string;
     pickupTime: string;
+    returnTime: string | null;
     pickupAddress: string;
     dropoffAddress: string | null;
     vehicleRequest: string | null;
@@ -37,6 +38,12 @@ interface AdminProps {
     status: string;
     createdAt: string;
   }[];
+  vehicles: {
+    id: string;
+    name: string;
+    type: string;
+  }[];
+  userRole: string;
 }
 
 interface MemberDetail {
@@ -69,19 +76,31 @@ interface MemberDetail {
   }[];
 }
 
-export function AdminDashboard({ members, bookings, inquiries }: AdminProps) {
+interface Inspection {
+  id: string;
+  type: string;
+  notes: string | null;
+  createdAt: string;
+  vehicle: { name: string; type: string };
+  photos: { id: string; photoData: string; caption: string | null; createdAt: string }[];
+}
+
+export function AdminDashboard({ members, bookings, inquiries, vehicles, userRole }: AdminProps) {
+  const isDriver = userRole === "driver";
   const [activeTab, setActiveTab] = useState<"bookings" | "members" | "inquiries" | "create">("bookings");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   const pendingBookings = bookings.filter((b) => b.status === "pending");
   const newInquiries = inquiries.filter((i) => i.status === "new");
 
-  const tabs = [
-    { key: "bookings" as const, label: `Bookings (${pendingBookings.length} pending)` },
-    { key: "members" as const, label: `Members (${members.length})` },
-    { key: "inquiries" as const, label: `Inquiries (${newInquiries.length} new)` },
-    { key: "create" as const, label: "Create Member" },
-  ];
+  const tabs = isDriver
+    ? [{ key: "bookings" as const, label: "My Bookings" }]
+    : [
+        { key: "bookings" as const, label: `Bookings (${pendingBookings.length} pending)` },
+        { key: "members" as const, label: `Members (${members.length})` },
+        { key: "inquiries" as const, label: `Inquiries (${newInquiries.length} new)` },
+        { key: "create" as const, label: "Create Member" },
+      ];
 
   return (
     <div className="min-h-screen bg-navy-darkest text-cream">
@@ -89,7 +108,7 @@ export function AdminDashboard({ members, bookings, inquiries }: AdminProps) {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
             <p className="text-gold uppercase tracking-[0.16em] text-xs font-mono">
-              Admin
+              {isDriver ? "Driver" : "Admin"}
             </p>
             <p className="text-lg font-light">Palm Vintage Membership</p>
           </div>
@@ -121,25 +140,278 @@ export function AdminDashboard({ members, bookings, inquiries }: AdminProps) {
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 py-8">
-        {activeTab === "bookings" && <BookingsTab bookings={bookings} />}
-        {activeTab === "members" && (
+        {activeTab === "bookings" && <BookingsTab bookings={bookings} vehicles={vehicles} isDriver={isDriver} />}
+        {activeTab === "members" && !isDriver && (
           selectedMemberId ? (
             <MemberProfile
               memberId={selectedMemberId}
+              vehicles={vehicles}
               onBack={() => setSelectedMemberId(null)}
             />
           ) : (
             <MembersTab members={members} onSelect={setSelectedMemberId} />
           )
         )}
-        {activeTab === "inquiries" && <InquiriesTab inquiries={inquiries} />}
-        {activeTab === "create" && <CreateMemberForm />}
+        {activeTab === "inquiries" && !isDriver && <InquiriesTab inquiries={inquiries} />}
+        {activeTab === "create" && !isDriver && <CreateMemberForm />}
       </div>
     </div>
   );
 }
 
-function BookingsTab({ bookings }: { bookings: AdminProps["bookings"] }) {
+/* ─── Inspection Upload Modal ─── */
+function InspectionUpload({
+  bookingId,
+  vehicles,
+  onClose,
+  onUploaded,
+}: {
+  bookingId: string;
+  vehicles: { id: string; name: string; type: string }[];
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
+  const [type, setType] = useState<"before" | "after">("before");
+  const [vehicleId, setVehicleId] = useState(vehicles[0]?.id || "");
+  const [notes, setNotes] = useState("");
+  const [photos, setPhotos] = useState<{ photoData: string; caption: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPhotos((prev) => [...prev, { photoData: reader.result as string, caption: "" }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleSubmit() {
+    if (!photos.length || !vehicleId) return;
+    setUploading(true);
+    try {
+      const res = await fetch(`/api/admin/bookings/${bookingId}/inspection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, vehicleId, notes: notes || undefined, photos }),
+      });
+      if (res.ok) {
+        onUploaded();
+        onClose();
+      }
+    } catch {
+      // handle error
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-navy-darkest border border-cream/15 max-w-xl w-full max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-light">Upload Vehicle Condition Photos</h3>
+          <button onClick={onClose} className="text-cream/40 hover:text-cream/70 text-xl">&times;</button>
+        </div>
+
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">Inspection Type</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setType("before")}
+                  className={`flex-1 py-2.5 text-sm uppercase tracking-wider border transition-colors ${
+                    type === "before" ? "border-gold text-gold bg-gold/10" : "border-cream/20 text-cream/50"
+                  }`}
+                >
+                  Before
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setType("after")}
+                  className={`flex-1 py-2.5 text-sm uppercase tracking-wider border transition-colors ${
+                    type === "after" ? "border-gold text-gold bg-gold/10" : "border-cream/20 text-cream/50"
+                  }`}
+                >
+                  After
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">Vehicle</label>
+              <select
+                value={vehicleId}
+                onChange={(e) => setVehicleId(e.target.value)}
+                className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors appearance-none"
+              >
+                {vehicles.map((v) => (
+                  <option key={v.id} value={v.id} className="bg-navy-darkest">{v.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
+              Photos ({photos.length} selected)
+            </label>
+            <label className="block border-2 border-dashed border-cream/20 hover:border-gold/40 p-8 text-center cursor-pointer transition-colors">
+              <div className="text-cream/40 text-sm">
+                <span className="text-gold">Tap to take photos</span> or choose from gallery
+              </div>
+              <p className="text-cream/30 text-xs mt-1">Upload as many as needed</p>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                capture="environment"
+                className="hidden"
+                onChange={(e) => handleFiles(e.target.files)}
+              />
+            </label>
+          </div>
+
+          {photos.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {photos.map((p, i) => (
+                <div key={i} className="relative group">
+                  <img src={p.photoData} alt={`Photo ${i + 1}`} className="w-full aspect-square object-cover border border-cream/10" />
+                  <button
+                    type="button"
+                    onClick={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
+                    className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    &times;
+                  </button>
+                  <input
+                    type="text"
+                    placeholder="Caption (optional)"
+                    value={p.caption}
+                    onChange={(e) => {
+                      const updated = [...photos];
+                      updated[i] = { ...updated[i], caption: e.target.value };
+                      setPhotos(updated);
+                    }}
+                    className="w-full bg-cream/5 border border-cream/10 px-2 py-1 text-xs text-cream mt-1 focus:outline-none focus:border-gold/50"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">Notes</label>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any visible damage, scratches, marks..."
+              className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors resize-none text-sm"
+            />
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            disabled={uploading || !photos.length}
+            className="w-full border border-gold/60 text-gold px-8 py-3.5 text-sm uppercase tracking-[0.14em] hover:bg-gold/10 transition-colors disabled:opacity-50"
+          >
+            {uploading ? "Uploading..." : `Upload ${type === "before" ? "Pre-Ride" : "Post-Ride"} Photos`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Inspection Viewer ─── */
+function InspectionViewer({ inspections }: { inspections: Inspection[] }) {
+  const [selectedPhoto, setSelectedPhoto] = useState<{ src: string; caption: string | null } | null>(null);
+
+  const before = inspections.filter((i) => i.type === "before");
+  const after = inspections.filter((i) => i.type === "after");
+
+  if (inspections.length === 0) {
+    return (
+      <p className="text-cream/30 text-sm py-4">No inspection photos uploaded yet.</p>
+    );
+  }
+
+  function renderInspection(group: Inspection[], label: string) {
+    if (group.length === 0) return null;
+    return (
+      <div>
+        <p className="text-xs uppercase tracking-[0.12em] text-cream/50 mb-3">{label} Inspection</p>
+        {group.map((insp) => (
+          <div key={insp.id} className="mb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-xs text-cream/40">
+                {insp.vehicle.name} &middot; {new Date(insp.createdAt).toLocaleString()}
+              </span>
+            </div>
+            {insp.notes && <p className="text-sm text-cream/60 mb-2 italic">{insp.notes}</p>}
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {insp.photos.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedPhoto({ src: p.photoData, caption: p.caption })}
+                  className="relative group cursor-pointer"
+                >
+                  <img src={p.photoData} alt={p.caption || "Inspection"} className="w-full aspect-square object-cover border border-cream/10 hover:border-gold/40 transition-colors" />
+                  {p.caption && (
+                    <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-cream text-[10px] px-1 py-0.5 truncate">
+                      {p.caption}
+                    </span>
+                  )}
+                  <span className="absolute top-1 right-1 text-[9px] text-cream/50 bg-black/50 px-1">
+                    {new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {renderInspection(before, "Pre-Ride")}
+      {renderInspection(after, "Post-Ride")}
+
+      {/* Lightbox */}
+      {selectedPhoto && (
+        <div
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div className="max-w-3xl max-h-[90vh] relative">
+            <img src={selectedPhoto.src} alt={selectedPhoto.caption || "Photo"} className="max-w-full max-h-[85vh] object-contain" />
+            {selectedPhoto.caption && (
+              <p className="text-center text-cream/70 text-sm mt-3">{selectedPhoto.caption}</p>
+            )}
+            <button
+              onClick={() => setSelectedPhoto(null)}
+              className="absolute top-2 right-2 w-8 h-8 bg-black/50 text-cream/70 hover:text-cream flex items-center justify-center text-xl"
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Bookings Tab ─── */
+function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["bookings"]; vehicles: AdminProps["vehicles"]; isDriver: boolean }) {
+  const [inspectionBookingId, setInspectionBookingId] = useState<string | null>(null);
+  const [viewingInspections, setViewingInspections] = useState<{ bookingId: string; inspections: Inspection[] } | null>(null);
+
   async function updateStatus(id: string, status: string, vehicleAssigned?: string) {
     await fetch(`/api/admin/bookings/${id}`, {
       method: "PATCH",
@@ -149,9 +421,17 @@ function BookingsTab({ bookings }: { bookings: AdminProps["bookings"] }) {
     window.location.reload();
   }
 
+  async function viewInspections(bookingId: string) {
+    const res = await fetch(`/api/admin/bookings/${bookingId}/inspection`);
+    if (res.ok) {
+      const data = await res.json();
+      setViewingInspections({ bookingId, inspections: data });
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-light mb-4">All Bookings</h2>
+      <h2 className="text-lg font-light mb-4">{isDriver ? "Assigned Bookings" : "All Bookings"}</h2>
       {bookings.map((b) => (
         <div key={b.id} className="bg-cream/5 border border-cream/10 p-5">
           <div className="flex items-start justify-between gap-4 mb-3">
@@ -180,7 +460,7 @@ function BookingsTab({ bookings }: { bookings: AdminProps["bookings"] }) {
             </div>
             <div>
               <span className="text-cream/40 text-xs block">Time</span>
-              {b.pickupTime}
+              {b.pickupTime}{b.returnTime ? ` – ${b.returnTime}` : ""}
             </div>
             <div>
               <span className="text-cream/40 text-xs block">Pickup</span>
@@ -199,7 +479,34 @@ function BookingsTab({ bookings }: { bookings: AdminProps["bookings"] }) {
             <span className="text-cream/40">|</span>
             <span className="text-cream/40">{b.passengers} pax</span>
           </div>
-          {b.status === "pending" && (
+
+          {/* Vehicle Condition Actions */}
+          {(b.status === "confirmed" || b.status === "completed") && (
+            <div className="flex gap-3 mt-4 pt-4 border-t border-cream/10">
+              <button
+                onClick={() => setInspectionBookingId(b.id)}
+                className="text-xs border border-gold/50 text-gold px-3 py-1.5 hover:bg-gold/10 transition-colors"
+              >
+                Upload Condition Photos
+              </button>
+              <button
+                onClick={() => viewInspections(b.id)}
+                className="text-xs border border-cream/20 text-cream/50 px-3 py-1.5 hover:bg-cream/10 transition-colors"
+              >
+                View Photos
+              </button>
+              {!isDriver && b.status === "confirmed" && (
+                <button
+                  onClick={() => updateStatus(b.id, "completed")}
+                  className="text-xs border border-cream/30 text-cream/60 px-3 py-1.5 hover:bg-cream/10 transition-colors ml-auto"
+                >
+                  Mark Completed
+                </button>
+              )}
+            </div>
+          )}
+
+          {!isDriver && b.status === "pending" && (
             <div className="flex gap-3 mt-4 pt-4 border-t border-cream/10">
               <button
                 onClick={() => updateStatus(b.id, "confirmed", b.vehicleRequest || "rolls_royce")}
@@ -221,22 +528,34 @@ function BookingsTab({ bookings }: { bookings: AdminProps["bookings"] }) {
               </button>
             </div>
           )}
-          {b.status === "confirmed" && (
-            <div className="flex gap-3 mt-4 pt-4 border-t border-cream/10">
-              <button
-                onClick={() => updateStatus(b.id, "completed")}
-                className="text-xs border border-cream/30 text-cream/60 px-3 py-1.5 hover:bg-cream/10 transition-colors"
-              >
-                Mark Completed
-              </button>
+
+          {/* Inline inspection viewer */}
+          {viewingInspections?.bookingId === b.id && (
+            <div className="mt-4 pt-4 border-t border-cream/10">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm text-gold/70 uppercase tracking-[0.12em]">Vehicle Condition Report</h4>
+                <button onClick={() => setViewingInspections(null)} className="text-xs text-cream/40 hover:text-cream/70">&times; Close</button>
+              </div>
+              <InspectionViewer inspections={viewingInspections.inspections} />
             </div>
           )}
         </div>
       ))}
+
+      {/* Inspection upload modal */}
+      {inspectionBookingId && (
+        <InspectionUpload
+          bookingId={inspectionBookingId}
+          vehicles={vehicles}
+          onClose={() => setInspectionBookingId(null)}
+          onUploaded={() => window.location.reload()}
+        />
+      )}
     </div>
   );
 }
 
+/* ─── Members Tab ─── */
 function MembersTab({ members, onSelect }: { members: AdminProps["members"]; onSelect: (id: string) => void }) {
   return (
     <div className="space-y-4">
@@ -271,12 +590,15 @@ function MembersTab({ members, onSelect }: { members: AdminProps["members"]; onS
   );
 }
 
-function MemberProfile({ memberId, onBack }: { memberId: string; onBack: () => void }) {
+/* ─── Member Profile ─── */
+function MemberProfile({ memberId, vehicles, onBack }: { memberId: string; vehicles: AdminProps["vehicles"]; onBack: () => void }) {
   const [member, setMember] = useState<MemberDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [inspectionBookingId, setInspectionBookingId] = useState<string | null>(null);
+  const [viewingInspections, setViewingInspections] = useState<{ bookingId: string; inspections: Inspection[] } | null>(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -327,6 +649,14 @@ function MemberProfile({ memberId, onBack }: { memberId: string; onBack: () => v
       body: JSON.stringify({ password: newPass }),
     });
     setResetMsg(newPass);
+  }
+
+  async function viewInspections(bookingId: string) {
+    const res = await fetch(`/api/admin/bookings/${bookingId}/inspection`);
+    if (res.ok) {
+      const data = await res.json();
+      setViewingInspections({ bookingId, inspections: data });
+    }
   }
 
   if (loading) {
@@ -549,7 +879,7 @@ function MemberProfile({ memberId, onBack }: { memberId: string; onBack: () => v
                 </div>
               )}
 
-              {/* Booking history */}
+              {/* Booking history with inspection access */}
               <div className="bg-cream/5 border border-cream/10 p-6">
                 <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70 mb-4">
                   Trip History ({member.bookings.length})
@@ -559,19 +889,46 @@ function MemberProfile({ memberId, onBack }: { memberId: string; onBack: () => v
                 ) : (
                   <div className="space-y-3">
                     {member.bookings.map((b) => (
-                      <div key={b.id} className="flex items-center justify-between text-sm border-b border-cream/5 pb-3 last:border-0">
-                        <div>
-                          <p>{new Date(b.date).toLocaleDateString()} at {b.pickupTime}</p>
-                          <p className="text-xs text-cream/40">{b.pickupAddress}</p>
+                      <div key={b.id} className="border-b border-cream/5 pb-3 last:border-0">
+                        <div className="flex items-center justify-between text-sm">
+                          <div>
+                            <p>{new Date(b.date).toLocaleDateString()} at {b.pickupTime}</p>
+                            <p className="text-xs text-cream/40">{b.pickupAddress}</p>
+                          </div>
+                          <span className={`text-xs uppercase tracking-wider ${
+                            b.status === "completed" ? "text-cream/40" :
+                            b.status === "confirmed" ? "text-green-400" :
+                            b.status === "pending" ? "text-yellow-400" :
+                            "text-red-400"
+                          }`}>
+                            {b.status}
+                          </span>
                         </div>
-                        <span className={`text-xs uppercase tracking-wider ${
-                          b.status === "completed" ? "text-cream/40" :
-                          b.status === "confirmed" ? "text-green-400" :
-                          b.status === "pending" ? "text-yellow-400" :
-                          "text-red-400"
-                        }`}>
-                          {b.status}
-                        </span>
+                        {(b.status === "confirmed" || b.status === "completed") && (
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              onClick={() => setInspectionBookingId(b.id)}
+                              className="text-[11px] border border-gold/40 text-gold px-2 py-1 hover:bg-gold/10 transition-colors"
+                            >
+                              Upload Photos
+                            </button>
+                            <button
+                              onClick={() => viewInspections(b.id)}
+                              className="text-[11px] border border-cream/20 text-cream/50 px-2 py-1 hover:bg-cream/10 transition-colors"
+                            >
+                              View Condition
+                            </button>
+                          </div>
+                        )}
+                        {viewingInspections?.bookingId === b.id && (
+                          <div className="mt-3 pt-3 border-t border-cream/10">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs text-gold/70 uppercase tracking-[0.12em]">Vehicle Condition</span>
+                              <button onClick={() => setViewingInspections(null)} className="text-xs text-cream/40 hover:text-cream/70">&times;</button>
+                            </div>
+                            <InspectionViewer inspections={viewingInspections.inspections} />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -581,10 +938,24 @@ function MemberProfile({ memberId, onBack }: { memberId: string; onBack: () => v
           )}
         </div>
       </div>
+
+      {/* Inspection upload modal */}
+      {inspectionBookingId && (
+        <InspectionUpload
+          bookingId={inspectionBookingId}
+          vehicles={vehicles}
+          onClose={() => setInspectionBookingId(null)}
+          onUploaded={() => {
+            viewInspections(inspectionBookingId);
+            setInspectionBookingId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
+/* ─── Inquiries Tab ─── */
 function InquiriesTab({ inquiries }: { inquiries: AdminProps["inquiries"] }) {
   async function updateInquiryStatus(id: string, status: string) {
     await fetch(`/api/admin/inquiries/${id}`, {
@@ -657,6 +1028,7 @@ function InquiriesTab({ inquiries }: { inquiries: AdminProps["inquiries"] }) {
   );
 }
 
+/* ─── Create Member Form ─── */
 function CreateMemberForm() {
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [result, setResult] = useState<{ email: string; tempPassword: string } | null>(null);

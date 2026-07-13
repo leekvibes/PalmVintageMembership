@@ -35,6 +35,22 @@ interface DashboardProps {
   businessHours: { open: string; close: string };
 }
 
+interface InspectionPhoto {
+  id: string;
+  photoData: string;
+  caption: string | null;
+  createdAt: string;
+}
+
+interface Inspection {
+  id: string;
+  type: string;
+  notes: string | null;
+  createdAt: string;
+  vehicle: { name: string; type: string };
+  photos: InspectionPhoto[];
+}
+
 export function DashboardClient({
   user,
   membership,
@@ -207,18 +223,7 @@ export function DashboardClient({
         )}
 
         {activeTab === "trips" && (
-          <div>
-            <h2 className="text-lg font-light mb-6">All Trips</h2>
-            {bookings.length === 0 ? (
-              <p className="text-cream/40 text-sm">No trips yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {bookings.map((b) => (
-                  <BookingCard key={b.id} booking={b} />
-                ))}
-              </div>
-            )}
-          </div>
+          <TripsTab bookings={bookings} />
         )}
 
         {activeTab === "account" && (
@@ -268,6 +273,184 @@ export function DashboardClient({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─── Trips Tab with Vehicle Condition ─── */
+function TripsTab({ bookings }: { bookings: DashboardProps["bookings"] }) {
+  const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
+  const [inspections, setInspections] = useState<Record<string, Inspection[]>>({});
+  const [loadingInspection, setLoadingInspection] = useState<string | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<{ src: string; caption: string | null } | null>(null);
+
+  async function toggleCondition(bookingId: string) {
+    if (expandedBooking === bookingId) {
+      setExpandedBooking(null);
+      return;
+    }
+
+    setExpandedBooking(bookingId);
+
+    if (!inspections[bookingId]) {
+      setLoadingInspection(bookingId);
+      try {
+        const res = await fetch(`/api/bookings/${bookingId}/inspection`);
+        if (res.ok) {
+          const data = await res.json();
+          setInspections((prev) => ({ ...prev, [bookingId]: data }));
+        }
+      } catch {
+        // silent
+      } finally {
+        setLoadingInspection(null);
+      }
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-light mb-6">All Trips</h2>
+      {bookings.length === 0 ? (
+        <p className="text-cream/40 text-sm">No trips yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {bookings.map((b) => (
+            <div key={b.id} className="bg-cream/5 border border-cream/10">
+              <div className="p-4 flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm">
+                    {new Date(b.date).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}{" "}
+                    at {b.pickupTime}
+                  </p>
+                  <p className="text-xs text-cream/40 truncate">
+                    {b.pickupAddress}
+                  </p>
+                </div>
+                <div className="text-right flex items-center gap-3">
+                  <div>
+                    <p className={`text-xs uppercase tracking-wider ${
+                      b.status === "pending" ? "text-yellow-400" :
+                      b.status === "confirmed" ? "text-green-400" :
+                      b.status === "completed" ? "text-cream/40" :
+                      "text-red-400"
+                    }`}>
+                      {b.status}
+                    </p>
+                    {b.vehicleAssigned && (
+                      <p className="text-xs text-cream/30 mt-0.5">
+                        {b.vehicleAssigned === "rolls_royce" ? "Rolls-Royce" : "Escalade"}
+                      </p>
+                    )}
+                  </div>
+                  {(b.status === "confirmed" || b.status === "completed") && (
+                    <button
+                      onClick={() => toggleCondition(b.id)}
+                      className={`text-[11px] border px-2.5 py-1.5 transition-colors ${
+                        expandedBooking === b.id
+                          ? "border-gold text-gold bg-gold/10"
+                          : "border-cream/20 text-cream/50 hover:border-gold/40 hover:text-gold"
+                      }`}
+                    >
+                      Vehicle Condition
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Expanded vehicle condition */}
+              {expandedBooking === b.id && (
+                <div className="border-t border-cream/10 p-4">
+                  {loadingInspection === b.id ? (
+                    <p className="text-cream/40 text-sm">Loading inspection photos...</p>
+                  ) : inspections[b.id]?.length === 0 ? (
+                    <div className="text-center py-6">
+                      <p className="text-cream/40 text-sm">No vehicle condition photos uploaded yet.</p>
+                      <p className="text-cream/30 text-xs mt-1">Photos will appear here once the driver uploads them before and after your ride.</p>
+                    </div>
+                  ) : inspections[b.id] ? (
+                    <div className="space-y-5">
+                      {["before", "after"].map((type) => {
+                        const group = inspections[b.id].filter((i) => i.type === type);
+                        if (group.length === 0) return null;
+                        return (
+                          <div key={type}>
+                            <p className="text-xs uppercase tracking-[0.12em] text-gold/70 mb-3">
+                              {type === "before" ? "Pre-Ride" : "Post-Ride"} Condition
+                            </p>
+                            {group.map((insp) => (
+                              <div key={insp.id} className="mb-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-xs text-cream/50">{insp.vehicle.name}</span>
+                                  <span className="text-cream/20">&middot;</span>
+                                  <span className="text-xs text-cream/40">
+                                    {new Date(insp.createdAt).toLocaleString()}
+                                  </span>
+                                </div>
+                                {insp.notes && (
+                                  <p className="text-sm text-cream/60 italic mb-2">{insp.notes}</p>
+                                )}
+                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                  {insp.photos.map((p) => (
+                                    <button
+                                      key={p.id}
+                                      onClick={() => setSelectedPhoto({ src: p.photoData, caption: p.caption })}
+                                      className="relative group cursor-pointer"
+                                    >
+                                      <img
+                                        src={p.photoData}
+                                        alt={p.caption || "Inspection photo"}
+                                        className="w-full aspect-square object-cover border border-cream/10 hover:border-gold/40 transition-colors"
+                                      />
+                                      {p.caption && (
+                                        <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-cream text-[10px] px-1 py-0.5 truncate">
+                                          {p.caption}
+                                        </span>
+                                      )}
+                                      <span className="absolute top-1 right-1 text-[9px] text-cream/50 bg-black/50 px-1">
+                                        {new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Photo lightbox */}
+      {selectedPhoto && (
+        <div
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div className="max-w-3xl max-h-[90vh] relative">
+            <img src={selectedPhoto.src} alt={selectedPhoto.caption || "Photo"} className="max-w-full max-h-[85vh] object-contain" />
+            {selectedPhoto.caption && (
+              <p className="text-center text-cream/70 text-sm mt-3">{selectedPhoto.caption}</p>
+            )}
+            <button
+              onClick={() => setSelectedPhoto(null)}
+              className="absolute top-2 right-2 w-8 h-8 bg-black/50 text-cream/70 hover:text-cream flex items-center justify-center text-xl"
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

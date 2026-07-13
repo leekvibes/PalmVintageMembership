@@ -18,7 +18,7 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  if (user.role === "admin") redirect("/admin");
+  if (user.role === "admin" || user.role === "driver") redirect("/admin");
 
   const totalTrips = user.bookings.filter(
     (b) => b.status === "completed"

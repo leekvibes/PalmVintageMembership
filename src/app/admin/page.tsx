@@ -11,9 +11,9 @@ export default async function AdminPage() {
     where: { id: session.user.id },
   });
 
-  if (!user || user.role !== "admin") redirect("/dashboard");
+  if (!user || (user.role !== "admin" && user.role !== "driver")) redirect("/dashboard");
 
-  const [members, bookings, inquiries] = await Promise.all([
+  const [members, bookings, inquiries, vehicles] = await Promise.all([
     prisma.user.findMany({
       where: { role: "member" },
       include: { membership: true, bookings: { orderBy: { date: "desc" }, take: 5 } },
@@ -28,10 +28,14 @@ export default async function AdminPage() {
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
+    prisma.vehicle.findMany({
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   return (
     <AdminDashboard
+      userRole={user.role}
       members={members.map((m) => ({
         id: m.id,
         name: m.name,
@@ -50,6 +54,7 @@ export default async function AdminPage() {
         userEmail: b.user.email,
         date: b.date.toISOString(),
         pickupTime: b.pickupTime,
+        returnTime: b.returnTime,
         pickupAddress: b.pickupAddress,
         dropoffAddress: b.dropoffAddress,
         vehicleRequest: b.vehicleRequest,
@@ -66,6 +71,11 @@ export default async function AdminPage() {
         message: i.message,
         status: i.status,
         createdAt: i.createdAt.toISOString(),
+      }))}
+      vehicles={vehicles.map((v) => ({
+        id: v.id,
+        name: v.name,
+        type: v.type,
       }))}
     />
   );

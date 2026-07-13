@@ -38,7 +38,6 @@ export async function GET(
     phone: user.phone,
     photoUrl: user.photoUrl,
     role: user.role,
-    passwordHash: user.passwordHash,
     createdAt: user.createdAt.toISOString(),
     membership: user.membership
       ? {
