@@ -151,12 +151,17 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
   return (
     <div>
       <h2 className="text-lg font-light mb-2">Book a Ride</h2>
-      <p className="text-cream/40 text-sm mb-8">
+      <p className="text-cream/40 text-sm mb-6">
         Available daily from {businessHours.open} to {businessHours.close}. Our
         team will confirm availability and vehicle assignment.
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6 max-w-lg">
+      <AvailabilityCalendar
+        selectedDate={date}
+        onSelectDate={(d) => setDate(d)}
+      />
+
+      <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6 max-w-lg mt-8">
         <div>
           <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
             Date *
@@ -316,6 +321,145 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
           {status === "submitting" ? "Submitting..." : "Request Ride"}
         </button>
       </form>
+    </div>
+  );
+}
+
+/* ─── Availability Calendar ─── */
+interface CalendarDay {
+  date: string;
+  status: "open" | "partial" | "full";
+}
+
+function AvailabilityCalendar({
+  selectedDate,
+  onSelectDate,
+}: {
+  selectedDate: string;
+  onSelectDate: (date: string) => void;
+}) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [days, setDays] = useState<CalendarDay[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const monthKey = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}`;
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/bookings/calendar?month=${monthKey}`)
+      .then((r) => r.json())
+      .then((data) => { setDays(data.days || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [monthKey]);
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); }
+    else setViewMonth((m) => m - 1);
+  }
+
+  function nextMonth() {
+    if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); }
+    else setViewMonth((m) => m + 1);
+  }
+
+  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  const isPastMonth = viewYear < today.getFullYear() || (viewYear === today.getFullYear() && viewMonth < today.getMonth());
+
+  const monthLabel = new Date(viewYear, viewMonth).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  return (
+    <div className="max-w-lg mb-2">
+      <div className="flex items-center justify-between mb-4">
+        <button
+          type="button"
+          onClick={prevMonth}
+          disabled={isPastMonth}
+          className="text-cream/40 hover:text-cream/70 transition-colors disabled:opacity-30 px-2 py-1"
+        >
+          &#8592;
+        </button>
+        <p className="text-sm font-light tracking-wide">{monthLabel}</p>
+        <button
+          type="button"
+          onClick={nextMonth}
+          className="text-cream/40 hover:text-cream/70 transition-colors px-2 py-1"
+        >
+          &#8594;
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-px">
+        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+          <div key={d} className="text-center text-[10px] uppercase tracking-wider text-cream/30 py-1.5">{d}</div>
+        ))}
+
+        {Array.from({ length: firstDayOfMonth }, (_, i) => (
+          <div key={`pad-${i}`} />
+        ))}
+
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          const dateStr = `${monthKey}-${String(day).padStart(2, "0")}`;
+          const isPast = dateStr <= todayStr;
+          const dayData = days.find((d) => d.date === dateStr);
+          const status = dayData?.status || "open";
+          const isSelected = dateStr === selectedDate;
+
+          const dotColor =
+            status === "open" ? "bg-green-400" :
+            status === "partial" ? "bg-gold" :
+            "bg-red-400/70";
+
+          return (
+            <button
+              key={day}
+              type="button"
+              disabled={isPast}
+              onClick={() => onSelectDate(dateStr)}
+              className={`relative flex flex-col items-center py-2 sm:py-2.5 transition-colors ${
+                isPast
+                  ? "text-cream/15 cursor-not-allowed"
+                  : isSelected
+                  ? "bg-gold/15 text-gold"
+                  : status === "full"
+                  ? "text-cream/30 hover:bg-cream/5"
+                  : "text-cream/70 hover:bg-cream/5"
+              }`}
+            >
+              <span className="text-sm">{day}</span>
+              {!isPast && !loading && (
+                <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${dotColor}`} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 mt-3 justify-center">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+          <span className="text-[10px] text-cream/40">Available</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-gold" />
+          <span className="text-[10px] text-cream/40">Partial</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-400/70" />
+          <span className="text-[10px] text-cream/40">Fully Booked</span>
+        </div>
+      </div>
+
+      {loading && (
+        <p className="text-center text-xs text-cream/30 mt-2">Loading availability...</p>
+      )}
     </div>
   );
 }
