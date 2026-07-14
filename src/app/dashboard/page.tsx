@@ -12,7 +12,9 @@ export default async function DashboardPage() {
     where: { id: session.user.id },
     include: {
       membership: { include: { guests: true } },
-      bookings: { orderBy: { date: "desc" }, take: 20 },
+      bookings: { orderBy: { date: "desc" }, take: 20, include: { rating: true } },
+      savedAddresses: { orderBy: { createdAt: "desc" } },
+      ridePreference: true,
     },
   });
 
@@ -60,9 +62,20 @@ export default async function DashboardPage() {
         vehicleAssigned: b.vehicleAssigned,
         status: b.status,
         passengers: b.passengers,
+        rating: b.rating ? { stars: b.rating.stars, comment: b.rating.comment } : null,
       }))}
       totalTrips={totalTrips}
       businessHours={BUSINESS.hours}
+      savedAddresses={user.savedAddresses.map((a) => ({
+        id: a.id,
+        label: a.label,
+        address: a.address,
+      }))}
+      ridePreference={user.ridePreference ? {
+        vehicleRequest: user.ridePreference.vehicleRequest,
+        passengers: user.ridePreference.passengers,
+        notes: user.ridePreference.notes,
+      } : null}
     />
   );
 }

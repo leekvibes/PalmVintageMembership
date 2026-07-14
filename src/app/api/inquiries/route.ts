@@ -5,7 +5,7 @@ import { sendInquiryNotification } from "@/lib/email";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, email, phone, program, message } = body;
+    const { name, email, phone, program, message, source } = body;
 
     if (!name || !email || !program) {
       return NextResponse.json(
@@ -21,6 +21,7 @@ export async function POST(request: Request) {
         phone: phone || null,
         program,
         message: message || null,
+        source: source || null,
       },
     });
 

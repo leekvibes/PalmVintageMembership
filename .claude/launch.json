@@ -3,10 +3,9 @@
   "configurations": [
     {
       "name": "palm-vintage-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "3001"],
-      "port": 3001,
-      "cwd": "/Users/malekqibaa/Desktop/Palm Vintage/membership"
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "--port", "3001"],
+      "port": 3001
     }
   ]
 }

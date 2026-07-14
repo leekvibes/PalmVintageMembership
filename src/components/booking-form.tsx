@@ -10,6 +10,8 @@ interface BookingFormProps {
     vehicleRequest: string;
     passengers: number;
   };
+  savedAddresses?: { id: string; label: string; address: string }[];
+  ridePreference?: { vehicleRequest: string | null; passengers: number; notes: string | null } | null;
 }
 
 interface VehicleAvailability {
@@ -19,15 +21,38 @@ interface VehicleAvailability {
   available: boolean;
 }
 
-export function BookingForm({ businessHours, prefill }: BookingFormProps) {
+export function BookingForm({ businessHours, prefill, savedAddresses: initialAddresses, ridePreference }: BookingFormProps) {
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [date, setDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
-  const [vehicleRequest, setVehicleRequest] = useState(prefill?.vehicleRequest || "");
+  const [vehicleRequest, setVehicleRequest] = useState(prefill?.vehicleRequest || ridePreference?.vehicleRequest || "");
   const [availability, setAvailability] = useState<VehicleAvailability[] | null>(null);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState(initialAddresses || []);
+  const [pickupAddress, setPickupAddress] = useState(prefill?.pickupAddress || "");
+  const [dropoffAddress, setDropoffAddress] = useState(prefill?.dropoffAddress || "");
+
+  async function handleSaveAddress(address: string, label: string) {
+    try {
+      const res = await fetch("/api/addresses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label, address }),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setSavedAddresses((prev) => {
+          const exists = prev.find((a) => a.id === saved.id);
+          if (exists) return prev.map((a) => a.id === saved.id ? saved : a);
+          return [saved, ...prev];
+        });
+      }
+    } catch {
+      // silent
+    }
+  }
 
   const checkAvailability = useCallback(async () => {
     if (!date || !pickupTime) {
@@ -85,6 +110,8 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
       setReturnTime("");
       setVehicleRequest("");
       setAvailability(null);
+      setPickupAddress("");
+      setDropoffAddress("");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       setStatus("error");
@@ -129,7 +156,7 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
         team will confirm availability and vehicle assignment.
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-6 max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6 max-w-lg">
         <div>
           <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
             Date *
@@ -141,11 +168,11 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
             min={minDate}
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors"
+            className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm focus:outline-none focus:border-gold/50 transition-colors rounded-none"
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <div>
             <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
               Pickup Time *
@@ -156,7 +183,7 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
               required
               value={pickupTime}
               onChange={(e) => setPickupTime(e.target.value)}
-              className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors"
+              className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm focus:outline-none focus:border-gold/50 transition-colors rounded-none"
             />
           </div>
           <div>
@@ -168,40 +195,32 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
               name="returnTime"
               value={returnTime}
               onChange={(e) => setReturnTime(e.target.value)}
-              className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors"
+              className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm focus:outline-none focus:border-gold/50 transition-colors rounded-none"
             />
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
-            Pickup Address *
-          </label>
-          <input
-            type="text"
-            name="pickupAddress"
-            required
-            defaultValue={prefill?.pickupAddress}
-            placeholder="Full street address"
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
-          />
-        </div>
+        <AddressField
+          label="Pickup Address *"
+          name="pickupAddress"
+          value={pickupAddress}
+          onChange={setPickupAddress}
+          savedAddresses={savedAddresses}
+          onSave={handleSaveAddress}
+          placeholder="Full street address"
+        />
 
-        <div>
-          <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
-            Drop-off Address *
-          </label>
-          <input
-            type="text"
-            name="dropoffAddress"
-            required
-            defaultValue={prefill?.dropoffAddress}
-            placeholder="Full street address for return trip"
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
-          />
-        </div>
+        <AddressField
+          label="Drop-off Address *"
+          name="dropoffAddress"
+          value={dropoffAddress}
+          onChange={setDropoffAddress}
+          savedAddresses={savedAddresses}
+          onSave={handleSaveAddress}
+          placeholder="Full street address for return trip"
+        />
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
             <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
               Vehicle Preference
@@ -210,7 +229,7 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
               name="vehicleRequest"
               value={vehicleRequest}
               onChange={(e) => setVehicleRequest(e.target.value)}
-              className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors appearance-none"
+              className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm focus:outline-none focus:border-gold/50 transition-colors appearance-none rounded-none"
             >
               <option value="" className="bg-navy-darkest">
                 No preference
@@ -232,8 +251,8 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
               name="passengers"
               min="1"
               max="6"
-              defaultValue={prefill?.passengers || 1}
-              className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream focus:outline-none focus:border-gold/50 transition-colors"
+              defaultValue={prefill?.passengers || ridePreference?.passengers || 1}
+              className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm focus:outline-none focus:border-gold/50 transition-colors rounded-none"
             />
           </div>
         </div>
@@ -279,8 +298,9 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
           <textarea
             name="notes"
             rows={3}
+            defaultValue={ridePreference?.notes || ""}
             placeholder="Any special requests or instructions..."
-            className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors resize-none"
+            className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors resize-none rounded-none"
           />
         </div>
 
@@ -291,11 +311,102 @@ export function BookingForm({ businessHours, prefill }: BookingFormProps) {
         <button
           type="submit"
           disabled={status === "submitting" || (!!selectedVehicleAvail && !selectedVehicleAvail.available)}
-          className="w-full border border-gold/60 text-gold px-8 py-4 text-sm uppercase tracking-[0.14em] hover:bg-gold/10 transition-colors disabled:opacity-50"
+          className="w-full border border-gold/60 text-gold px-8 py-4.5 sm:py-4 text-base sm:text-sm uppercase tracking-[0.14em] hover:bg-gold/10 active:bg-gold/20 transition-colors disabled:opacity-50"
         >
           {status === "submitting" ? "Submitting..." : "Request Ride"}
         </button>
       </form>
+    </div>
+  );
+}
+
+/* ─── Address Field with Saved Addresses ─── */
+function AddressField({
+  label,
+  name,
+  value,
+  onChange,
+  savedAddresses,
+  onSave,
+  placeholder,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (v: string) => void;
+  savedAddresses: { id: string; label: string; address: string }[];
+  onSave: (address: string, label: string) => void;
+  placeholder: string;
+}) {
+  const [showSave, setShowSave] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("");
+
+  const isSaved = savedAddresses.some((a) => a.address === value);
+
+  return (
+    <div>
+      <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
+        {label}
+      </label>
+      {savedAddresses.length > 0 && (
+        <select
+          onChange={(e) => { if (e.target.value) onChange(e.target.value); }}
+          value=""
+          className="w-full bg-cream/5 border border-cream/15 px-4 py-2 text-cream text-xs focus:outline-none focus:border-gold/50 transition-colors appearance-none rounded-none mb-1.5"
+        >
+          <option value="" className="bg-navy-darkest">Select saved address...</option>
+          {savedAddresses.map((a) => (
+            <option key={a.id} value={a.address} className="bg-navy-darkest">
+              {a.label} — {a.address.slice(0, 40)}{a.address.length > 40 ? "..." : ""}
+            </option>
+          ))}
+        </select>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          name={name}
+          required
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors rounded-none"
+        />
+        {value && !isSaved && (
+          <button
+            type="button"
+            onClick={() => setShowSave(!showSave)}
+            className="border border-cream/15 px-2.5 text-cream/40 hover:text-gold hover:border-gold/40 transition-colors text-xs"
+            title="Save this address"
+          >
+            +
+          </button>
+        )}
+      </div>
+      {showSave && (
+        <div className="flex gap-1.5 mt-1.5">
+          <input
+            type="text"
+            value={saveLabel}
+            onChange={(e) => setSaveLabel(e.target.value)}
+            placeholder="Label (e.g. Home, Office)"
+            className="flex-1 bg-cream/5 border border-cream/15 px-3 py-2 text-cream text-xs placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors rounded-none"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (saveLabel && value) {
+                onSave(value, saveLabel);
+                setShowSave(false);
+                setSaveLabel("");
+              }
+            }}
+            className="border border-gold/40 text-gold px-3 py-2 text-xs hover:bg-gold/10 transition-colors"
+          >
+            Save
+          </button>
+        </div>
+      )}
     </div>
   );
 }

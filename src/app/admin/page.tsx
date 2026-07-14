@@ -70,6 +70,9 @@ export default async function AdminPage() {
         program: i.program,
         message: i.message,
         status: i.status,
+        source: i.source,
+        convertedUserId: i.convertedUserId,
+        convertedAt: i.convertedAt?.toISOString() || null,
         createdAt: i.createdAt.toISOString(),
       }))}
       vehicles={vehicles.map((v) => ({

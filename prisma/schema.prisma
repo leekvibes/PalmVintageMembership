@@ -18,8 +18,12 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  membership    Membership?
-  bookings      Booking[]
+  membership      Membership?
+  bookings        Booking[]
+  savedAddresses  SavedAddress[]
+  ridePreference  RidePreference?
+  ratings         Rating[]
+  eventRsvps      EventRsvp[]
 }
 
 model Membership {
@@ -68,6 +72,7 @@ model Booking {
   updatedAt       DateTime @updatedAt
 
   inspections     VehicleInspection[]
+  rating          Rating?
 }
 
 model Vehicle {
@@ -107,6 +112,65 @@ model InspectionPhoto {
   createdAt    DateTime          @default(now())
 }
 
+model SavedAddress {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label   String
+  address String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, address])
+}
+
+model RidePreference {
+  id              String @id @default(cuid())
+  userId          String @unique
+  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleRequest  String?
+  passengers      Int    @default(1)
+  notes           String?
+  updatedAt       DateTime @updatedAt
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  date        DateTime
+  endDate     DateTime?
+  location    String?
+  capacity    Int?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rsvps       EventRsvp[]
+}
+
+model EventRsvp {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status  String @default("attending")
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+}
+
 model Inquiry {
   id        String   @id @default(cuid())
   name      String
@@ -115,5 +179,8 @@ model Inquiry {
   program   String
   message   String?
   status    String   @default("new")
+  source    String?
+  convertedUserId String?
+  convertedAt     DateTime?
   createdAt DateTime @default(now())
 }

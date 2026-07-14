@@ -18,9 +18,17 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { status } = body;
+  const { status, convertedUserId } = body;
 
-  await prisma.inquiry.update({ where: { id }, data: { status } });
+  const data: Record<string, unknown> = {};
+  if (status) data.status = status;
+  if (convertedUserId) {
+    data.convertedUserId = convertedUserId;
+    data.convertedAt = new Date();
+    data.status = "converted";
+  }
+
+  await prisma.inquiry.update({ where: { id }, data });
 
   return NextResponse.json({ success: true });
 }

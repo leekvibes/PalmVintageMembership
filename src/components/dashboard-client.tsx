@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signOut } from "next-auth/react";
 import { BookingForm } from "./booking-form";
 
@@ -30,9 +30,12 @@ interface DashboardProps {
     vehicleAssigned: string | null;
     status: string;
     passengers: number;
+    rating: { stars: number; comment: string | null } | null;
   }[];
   totalTrips: number;
   businessHours: { open: string; close: string };
+  savedAddresses?: { id: string; label: string; address: string }[];
+  ridePreference?: { vehicleRequest: string | null; passengers: number; notes: string | null } | null;
 }
 
 interface InspectionPhoto {
@@ -57,8 +60,10 @@ export function DashboardClient({
   bookings,
   totalTrips,
   businessHours,
+  savedAddresses,
+  ridePreference,
 }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "book" | "trips" | "account">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "book" | "trips" | "events" | "account">("overview");
   const [rescheduleBooking, setRescheduleBooking] = useState<DashboardProps["bookings"][0] | null>(null);
 
   const programLabel =
@@ -74,29 +79,30 @@ export function DashboardClient({
     { key: "overview" as const, label: "Overview" },
     { key: "book" as const, label: "Book a Ride" },
     { key: "trips" as const, label: "My Trips" },
+    { key: "events" as const, label: "Events" },
     { key: "account" as const, label: "Account" },
   ];
 
   return (
     <div className="min-h-screen bg-navy-darkest text-cream">
       {/* Header */}
-      <header className="border-b border-cream/10 px-6 py-5">
+      <header className="border-b border-cream/10 px-4 sm:px-6 py-4 sm:py-5">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-3 sm:gap-5">
             {user.photoUrl ? (
               <img
                 src={user.photoUrl}
                 alt={user.name}
-                className="w-16 h-16 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5"
+                className="w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-gold/40 shadow-lg shadow-gold/5"
               />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-xl font-mono shadow-lg shadow-gold/5">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-navy-deep border-2 border-gold/40 flex items-center justify-center text-gold text-lg sm:text-xl font-mono shadow-lg shadow-gold/5">
                 {user.name.charAt(0)}
               </div>
             )}
             <div>
-              <p className="text-base font-medium">{user.name}</p>
-              <p className="text-xs text-cream/40">{programLabel}</p>
+              <p className="text-sm sm:text-base font-medium">{user.name}</p>
+              <p className="text-[10px] sm:text-xs text-cream/40">{programLabel}</p>
             </div>
           </div>
           <button
@@ -109,13 +115,13 @@ export function DashboardClient({
       </header>
 
       {/* Tabs */}
-      <nav className="border-b border-cream/10 px-6">
-        <div className="max-w-5xl mx-auto flex gap-8 overflow-x-auto">
+      <nav className="border-b border-cream/10 px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto flex gap-4 sm:gap-8 overflow-x-auto scrollbar-none">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`py-4 text-sm uppercase tracking-[0.12em] border-b-2 transition-colors whitespace-nowrap ${
+              className={`py-3 sm:py-4 text-xs sm:text-sm uppercase tracking-[0.12em] border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? "border-gold text-gold"
                   : "border-transparent text-cream/40 hover:text-cream/70"
@@ -171,6 +177,9 @@ export function DashboardClient({
                 value={String(upcomingBookings.length)}
               />
             </div>
+
+            {/* Monthly Usage Summary */}
+            <MonthlyUsageSummary bookings={bookings} />
 
             {/* Upcoming bookings */}
             <div>
@@ -241,6 +250,8 @@ export function DashboardClient({
                 vehicleRequest: rescheduleBooking.vehicleRequest || "",
                 passengers: rescheduleBooking.passengers,
               } : undefined}
+              savedAddresses={savedAddresses}
+              ridePreference={ridePreference}
             />
           </div>
         )}
@@ -256,8 +267,10 @@ export function DashboardClient({
           />
         )}
 
+        {activeTab === "events" && <EventsTab />}
+
         {activeTab === "account" && (
-          <AccountTab user={user} membership={membership} programLabel={programLabel} />
+          <AccountTab user={user} membership={membership} programLabel={programLabel} ridePreference={ridePreference} />
         )}
       </div>
     </div>
@@ -269,10 +282,12 @@ function AccountTab({
   user,
   membership,
   programLabel,
+  ridePreference,
 }: {
   user: DashboardProps["user"];
   membership: DashboardProps["membership"];
   programLabel: string;
+  ridePreference?: DashboardProps["ridePreference"];
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -515,6 +530,97 @@ function AccountTab({
           <Row label="Members on Account" value={String(membership.guests.length + 1)} />
         </div>
       )}
+
+      {/* Guest Management */}
+      {membership && (
+        <GuestManager guests={membership.guests} />
+      )}
+
+      {/* Ride Preferences */}
+      <RidePreferencesForm
+        initial={ridePreference}
+      />
+
+      {/* Digital Membership Card */}
+      {membership && (
+        <div>
+          <h3 className="text-sm uppercase tracking-[0.12em] text-cream/50 mb-3">Digital Membership Card</h3>
+          <div
+            id="membership-card"
+            className="relative w-full max-w-sm overflow-hidden"
+            style={{ aspectRatio: "1.586" }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-[#0a0e1a] via-[#111827] to-[#0a0e1a] border border-gold/30 rounded-lg" />
+            <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(212,160,23,0.3) 20px, rgba(212,160,23,0.3) 21px)" }} />
+
+            {/* Card content */}
+            <div className="relative h-full flex flex-col justify-between p-5">
+              {/* Top row */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-gold text-[10px] uppercase tracking-[0.2em] font-mono">Palm Vintage</p>
+                  <p className="text-[9px] text-cream/30 uppercase tracking-[0.16em] font-mono mt-0.5">Philadelphia</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] text-cream/30 uppercase tracking-[0.14em]">Member Since</p>
+                  <p className="text-xs text-cream/60 font-mono">
+                    {new Date(membership.startDate).toLocaleDateString("en-US", { month: "2-digit", year: "numeric" })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Center — name + photo */}
+              <div className="flex items-center gap-4">
+                {user.photoUrl ? (
+                  <img src={user.photoUrl} alt={user.name} className="w-14 h-14 rounded-full object-cover border border-gold/40" />
+                ) : (
+                  <div className="w-14 h-14 rounded-full bg-cream/5 border border-gold/40 flex items-center justify-center text-gold text-xl font-mono">
+                    {user.name.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <p className="text-cream text-base font-light tracking-wide">{user.name}</p>
+                  <p className="text-gold/60 text-[10px] uppercase tracking-[0.14em] font-mono">{programLabel}</p>
+                </div>
+              </div>
+
+              {/* Bottom row */}
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-[9px] text-cream/30 uppercase tracking-[0.12em]">ID</p>
+                  <p className="text-xs text-cream/50 font-mono">{user.id.slice(0, 12).toUpperCase()}</p>
+                </div>
+                {/* QR-style pattern */}
+                <div className="grid grid-cols-5 gap-[2px]">
+                  {Array.from({ length: 25 }, (_, i) => {
+                    const hash = (user.id.charCodeAt(i % user.id.length) * 7 + i * 13) % 3;
+                    return (
+                      <div
+                        key={i}
+                        className={`w-[5px] h-[5px] ${hash === 0 ? "bg-gold/60" : hash === 1 ? "bg-cream/20" : "bg-transparent"}`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const card = document.getElementById("membership-card");
+              if (!card) return;
+              const range = document.createRange();
+              range.selectNode(card);
+              window.getSelection()?.removeAllRanges();
+              window.getSelection()?.addRange(range);
+              alert("Card selected — use your device screenshot tool to save it. On iPhone: press the side + volume up buttons.");
+            }}
+            className="mt-3 text-xs border border-cream/20 text-cream/50 px-4 py-2 hover:bg-cream/10 transition-colors"
+          >
+            Screenshot Card
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -527,6 +633,36 @@ function TripsTab({ bookings, onReschedule }: { bookings: DashboardProps["bookin
   const [selectedPhoto, setSelectedPhoto] = useState<{ src: string; caption: string | null } | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelConfirm, setCancelConfirm] = useState<string | null>(null);
+  const [ratingBookingId, setRatingBookingId] = useState<string | null>(null);
+  const [ratingStars, setRatingStars] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const [ratedBookings, setRatedBookings] = useState<Record<string, { stars: number; comment: string | null }>>(() => {
+    const map: Record<string, { stars: number; comment: string | null }> = {};
+    bookings.forEach((b) => { if (b.rating) map[b.id] = b.rating; });
+    return map;
+  });
+
+  async function handleSubmitRating(bookingId: string) {
+    setSubmittingRating(true);
+    try {
+      const res = await fetch("/api/ratings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId, stars: ratingStars, comment: ratingComment || null }),
+      });
+      if (res.ok) {
+        setRatedBookings((prev) => ({ ...prev, [bookingId]: { stars: ratingStars, comment: ratingComment || null } }));
+        setRatingBookingId(null);
+        setRatingStars(0);
+        setRatingComment("");
+      }
+    } catch {
+      // silent
+    } finally {
+      setSubmittingRating(false);
+    }
+  }
 
   async function toggleCondition(bookingId: string) {
     if (expandedBooking === bookingId) {
@@ -665,6 +801,78 @@ function TripsTab({ bookings, onReschedule }: { bookings: DashboardProps["bookin
                         </button>
                       )}
                     </>
+                  )}
+                </div>
+              )}
+
+              {/* Receipt + Rating for completed rides */}
+              {b.status === "completed" && (
+                <div className="px-4 pb-3">
+                  <div className="flex items-center gap-3 mb-2">
+                    <a
+                      href={`/api/bookings/${b.id}/receipt`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] border border-cream/20 text-cream/50 px-3 py-1.5 hover:bg-cream/10 hover:text-cream/70 transition-colors inline-block"
+                    >
+                      View Receipt
+                    </a>
+                  </div>
+                  {ratedBookings[b.id] ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <span key={s} className={`text-sm ${s <= ratedBookings[b.id].stars ? "text-gold" : "text-cream/20"}`}>&#9733;</span>
+                        ))}
+                      </div>
+                      {ratedBookings[b.id].comment && (
+                        <span className="text-xs text-cream/40 italic">&ldquo;{ratedBookings[b.id].comment}&rdquo;</span>
+                      )}
+                    </div>
+                  ) : ratingBookingId === b.id ? (
+                    <div className="space-y-2 border-t border-cream/10 pt-3">
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setRatingStars(s)}
+                            className={`text-xl transition-colors ${s <= ratingStars ? "text-gold" : "text-cream/20 hover:text-cream/40"}`}
+                          >
+                            &#9733;
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="text"
+                        value={ratingComment}
+                        onChange={(e) => setRatingComment(e.target.value)}
+                        placeholder="How was your ride? (optional)"
+                        className="w-full bg-cream/5 border border-cream/15 px-3 py-2 text-cream text-xs placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleSubmitRating(b.id)}
+                          disabled={submittingRating || ratingStars === 0}
+                          className="text-[11px] border border-gold/50 text-gold px-3 py-1.5 hover:bg-gold/10 transition-colors disabled:opacity-50"
+                        >
+                          {submittingRating ? "..." : "Submit Rating"}
+                        </button>
+                        <button
+                          onClick={() => { setRatingBookingId(null); setRatingStars(0); setRatingComment(""); }}
+                          className="text-[11px] border border-cream/20 text-cream/50 px-3 py-1.5 hover:bg-cream/10 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setRatingBookingId(b.id)}
+                      className="text-[11px] border border-gold/30 text-gold/70 px-3 py-1.5 hover:bg-gold/10 hover:text-gold transition-colors"
+                    >
+                      Rate This Ride
+                    </button>
                   )}
                 </div>
               )}
@@ -817,6 +1025,427 @@ function BookingCard({
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─── Events Tab (Member) ─── */
+interface EventItem {
+  id: string;
+  title: string;
+  description: string | null;
+  date: string;
+  endDate: string | null;
+  location: string | null;
+  capacity: number | null;
+  rsvpCount: number;
+  myRsvp: string | null;
+}
+
+function EventsTab() {
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [rsvpingId, setRsvpingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/events")
+      .then((r) => r.json())
+      .then((data) => { setEvents(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function handleRsvp(eventId: string, status: string) {
+    setRsvpingId(eventId);
+    try {
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, status }),
+      });
+      if (res.ok) {
+        setEvents((prev) => prev.map((e) => {
+          if (e.id !== eventId) return e;
+          const wasAttending = e.myRsvp === "attending";
+          const nowAttending = status === "attending";
+          return {
+            ...e,
+            myRsvp: status,
+            rsvpCount: e.rsvpCount + (nowAttending ? 1 : 0) - (wasAttending ? 1 : 0),
+          };
+        }));
+      }
+    } catch {
+      // silent
+    } finally {
+      setRsvpingId(null);
+    }
+  }
+
+  if (loading) return <p className="text-cream/40 text-sm">Loading events...</p>;
+
+  return (
+    <div>
+      <h2 className="text-lg font-light mb-6">Upcoming Events</h2>
+      {events.length === 0 ? (
+        <p className="text-cream/40 text-sm">No upcoming events. Check back soon.</p>
+      ) : (
+        <div className="space-y-4">
+          {events.map((e) => (
+            <div key={e.id} className="bg-cream/5 border border-cream/10 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <h3 className="text-base font-light mb-1">{e.title}</h3>
+                  <p className="text-xs text-gold/70 font-mono uppercase tracking-wider">
+                    {new Date(e.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    {" at "}
+                    {new Date(e.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  </p>
+                  {e.location && <p className="text-xs text-cream/40 mt-1">{e.location}</p>}
+                  {e.description && <p className="text-sm text-cream/60 mt-3">{e.description}</p>}
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-cream/40">
+                    {e.rsvpCount} attending{e.capacity ? ` / ${e.capacity}` : ""}
+                  </p>
+                  {e.capacity && e.rsvpCount >= e.capacity && e.myRsvp !== "attending" ? (
+                    <p className="text-xs text-red-400/70 mt-1">Full</p>
+                  ) : e.myRsvp === "attending" ? (
+                    <button
+                      onClick={() => handleRsvp(e.id, "cancelled")}
+                      disabled={rsvpingId === e.id}
+                      className="mt-2 text-[11px] border border-green-400/40 text-green-400 px-3 py-1.5 hover:bg-red-400/10 hover:text-red-400 hover:border-red-400/40 transition-colors disabled:opacity-50"
+                    >
+                      {rsvpingId === e.id ? "..." : "Attending ✓"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleRsvp(e.id, "attending")}
+                      disabled={rsvpingId === e.id}
+                      className="mt-2 text-[11px] border border-gold/40 text-gold px-3 py-1.5 hover:bg-gold/10 transition-colors disabled:opacity-50"
+                    >
+                      {rsvpingId === e.id ? "..." : "RSVP"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Monthly Usage Summary ─── */
+function MonthlyUsageSummary({ bookings }: { bookings: DashboardProps["bookings"] }) {
+  const now = new Date();
+  const thisMonth = bookings.filter((b) => {
+    const d = new Date(b.date);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && b.status !== "cancelled";
+  });
+
+  const completed = thisMonth.filter((b) => b.status === "completed");
+  const upcoming = thisMonth.filter((b) => b.status === "pending" || b.status === "confirmed" || b.status === "in_progress");
+
+  const vehiclesUsed = new Set(completed.map((b) => b.vehicleAssigned).filter(Boolean));
+
+  const totalHours = completed.reduce((sum, b) => {
+    if (!b.pickupTime || !b.returnTime) return sum;
+    const [ph, pm] = b.pickupTime.split(":").map(Number);
+    const [rh, rm] = b.returnTime.split(":").map(Number);
+    return sum + ((rh * 60 + rm) - (ph * 60 + pm)) / 60;
+  }, 0);
+
+  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  return (
+    <div className="bg-cream/5 border border-cream/10 p-6">
+      <h3 className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-4">{monthLabel} Summary</h3>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <p className="text-2xl font-light">{completed.length}</p>
+          <p className="text-xs text-cream/40">Completed</p>
+        </div>
+        <div>
+          <p className="text-2xl font-light">{upcoming.length}</p>
+          <p className="text-xs text-cream/40">Upcoming</p>
+        </div>
+        <div>
+          <p className="text-2xl font-light">{totalHours > 0 ? `${totalHours.toFixed(1)}h` : "—"}</p>
+          <p className="text-xs text-cream/40">Total Hours</p>
+        </div>
+        <div>
+          <p className="text-2xl font-light">{vehiclesUsed.size || "—"}</p>
+          <p className="text-xs text-cream/40">Vehicles Used</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Guest Manager ─── */
+function GuestManager({
+  guests: initialGuests,
+}: {
+  guests: { id: string; name: string; phone: string | null; email: string | null }[];
+}) {
+  const [guests, setGuests] = useState(initialGuests);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", phone: "", email: "" });
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  async function handleAdd() {
+    if (!form.name) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/guests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (res.ok) {
+        const guest = await res.json();
+        setGuests((prev) => [...prev, guest]);
+        setForm({ name: "", phone: "", email: "" });
+        setAdding(false);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove(id: string) {
+    setRemovingId(id);
+    try {
+      const res = await fetch("/api/guests", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setGuests((prev) => prev.filter((g) => g.id !== id));
+      }
+    } catch {
+      // silent
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  const inputClass = "w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors";
+  const labelClass = "block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2";
+
+  return (
+    <div className="bg-cream/5 border border-cream/10 p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70">Guest Passes</h3>
+        {!adding && (
+          <button
+            onClick={() => setAdding(true)}
+            className="text-[11px] border border-gold/40 text-gold px-3 py-1.5 hover:bg-gold/10 transition-colors"
+          >
+            + Add Guest
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="space-y-3 border-t border-cream/10 pt-4">
+          <div>
+            <label className={labelClass}>Name *</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className={inputClass}
+              placeholder="Guest's full name"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Phone</label>
+              <input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className={inputClass}
+                placeholder="(555) 000-0000"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Email</label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className={inputClass}
+                placeholder="guest@email.com"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleAdd}
+              disabled={saving || !form.name}
+              className="border border-gold/50 text-gold px-5 py-2 text-xs uppercase tracking-[0.12em] hover:bg-gold/10 transition-colors disabled:opacity-50"
+            >
+              {saving ? "Adding..." : "Add Guest"}
+            </button>
+            <button
+              onClick={() => { setAdding(false); setForm({ name: "", phone: "", email: "" }); }}
+              className="border border-cream/20 text-cream/50 px-5 py-2 text-xs uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {guests.length === 0 ? (
+        <p className="text-xs text-cream/40">No guests added yet. Add guests who can ride under your membership.</p>
+      ) : (
+        <div className="space-y-2">
+          {guests.map((g) => (
+            <div key={g.id} className="flex items-center justify-between py-2 border-b border-cream/5 last:border-0">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-navy-deep border border-cream/10 flex items-center justify-center text-cream/50 text-xs font-mono">
+                  {g.name.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-sm">{g.name}</p>
+                  <p className="text-xs text-cream/40">{g.email || g.phone || ""}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleRemove(g.id)}
+                disabled={removingId === g.id}
+                className="text-[11px] text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-50"
+              >
+                {removingId === g.id ? "..." : "Remove"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Ride Preferences Form ─── */
+function RidePreferencesForm({
+  initial,
+}: {
+  initial?: { vehicleRequest: string | null; passengers: number; notes: string | null } | null;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [form, setForm] = useState({
+    vehicleRequest: initial?.vehicleRequest || "",
+    passengers: initial?.passengers || 1,
+    notes: initial?.notes || "",
+  });
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (res.ok) {
+        setSaved(true);
+        setEditing(false);
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputClass = "w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors";
+  const labelClass = "block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2";
+
+  return (
+    <div className="bg-cream/5 border border-cream/10 p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70">Ride Preferences</h3>
+        {!editing && (
+          <button
+            onClick={() => setEditing(true)}
+            className="text-[11px] border border-cream/20 text-cream/50 px-3 py-1.5 hover:bg-cream/10 transition-colors"
+          >
+            Edit
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-cream/40">These defaults auto-fill your booking form.</p>
+
+      {editing ? (
+        <div className="space-y-3">
+          <div>
+            <label className={labelClass}>Preferred Vehicle</label>
+            <select
+              value={form.vehicleRequest}
+              onChange={(e) => setForm({ ...form, vehicleRequest: e.target.value })}
+              className={`${inputClass} appearance-none`}
+            >
+              <option value="" className="bg-navy-darkest">No preference</option>
+              <option value="rolls_royce" className="bg-navy-darkest">Rolls-Royce</option>
+              <option value="escalade" className="bg-navy-darkest">Cadillac Escalade</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>Default Passengers</label>
+            <input
+              type="number"
+              min="1"
+              max="6"
+              value={form.passengers}
+              onChange={(e) => setForm({ ...form, passengers: parseInt(e.target.value) || 1 })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Standing Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={2}
+              placeholder="E.g. child seat needed, wheelchair accessible, etc."
+              className={`${inputClass} resize-none`}
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="border border-gold/50 text-gold px-5 py-2 text-xs uppercase tracking-[0.12em] hover:bg-gold/10 transition-colors disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Preferences"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="border border-cream/20 text-cream/50 px-5 py-2 text-xs uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Row label="Vehicle" value={form.vehicleRequest === "rolls_royce" ? "Rolls-Royce" : form.vehicleRequest === "escalade" ? "Cadillac Escalade" : "No preference"} />
+          <Row label="Passengers" value={String(form.passengers)} />
+          <Row label="Notes" value={form.notes || "—"} />
+        </div>
+      )}
+      {saved && <p className="text-xs text-green-400">Preferences saved.</p>}
     </div>
   );
 }

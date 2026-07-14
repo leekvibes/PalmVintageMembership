@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signOut } from "next-auth/react";
 
 interface AdminProps {
@@ -36,6 +36,9 @@ interface AdminProps {
     program: string;
     message: string | null;
     status: string;
+    source: string | null;
+    convertedUserId: string | null;
+    convertedAt: string | null;
     createdAt: string;
   }[];
   vehicles: {
@@ -87,7 +90,7 @@ interface Inspection {
 
 export function AdminDashboard({ members, bookings, inquiries, vehicles, userRole }: AdminProps) {
   const isDriver = userRole === "driver";
-  const [activeTab, setActiveTab] = useState<"bookings" | "members" | "inquiries" | "create">("bookings");
+  const [activeTab, setActiveTab] = useState<"bookings" | "schedule" | "members" | "inquiries" | "ratings" | "events" | "create">("bookings");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   const pendingBookings = bookings.filter((b) => b.status === "pending");
@@ -97,8 +100,11 @@ export function AdminDashboard({ members, bookings, inquiries, vehicles, userRol
     ? [{ key: "bookings" as const, label: "My Bookings" }]
     : [
         { key: "bookings" as const, label: `Bookings (${pendingBookings.length} pending)` },
+        { key: "schedule" as const, label: "Schedule" },
         { key: "members" as const, label: `Members (${members.length})` },
         { key: "inquiries" as const, label: `Inquiries (${newInquiries.length} new)` },
+        { key: "ratings" as const, label: "Ratings" },
+        { key: "events" as const, label: "Events" },
         { key: "create" as const, label: "Create Member" },
       ];
 
@@ -141,6 +147,7 @@ export function AdminDashboard({ members, bookings, inquiries, vehicles, userRol
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         {activeTab === "bookings" && <BookingsTab bookings={bookings} vehicles={vehicles} isDriver={isDriver} />}
+        {activeTab === "schedule" && !isDriver && <ScheduleTab bookings={bookings} vehicles={vehicles} />}
         {activeTab === "members" && !isDriver && (
           selectedMemberId ? (
             <MemberProfile
@@ -153,6 +160,8 @@ export function AdminDashboard({ members, bookings, inquiries, vehicles, userRol
           )
         )}
         {activeTab === "inquiries" && !isDriver && <InquiriesTab inquiries={inquiries} />}
+        {activeTab === "ratings" && !isDriver && <RatingsTab />}
+        {activeTab === "events" && !isDriver && <AdminEventsTab />}
         {activeTab === "create" && !isDriver && <CreateMemberForm />}
       </div>
     </div>
@@ -400,6 +409,229 @@ function InspectionViewer({ inspections }: { inspections: Inspection[] }) {
             >
               &times;
             </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Schedule Tab (Vehicle Assignment Board + Calendar) ─── */
+function ScheduleTab({ bookings, vehicles }: { bookings: AdminProps["bookings"]; vehicles: AdminProps["vehicles"] }) {
+  const [view, setView] = useState<"day" | "month">("day");
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split("T")[0];
+  });
+  const [calMonth, setCalMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  const statusColor: Record<string, string> = {
+    pending: "bg-yellow-400/20 border-yellow-400/50 text-yellow-400",
+    confirmed: "bg-green-400/20 border-green-400/50 text-green-400",
+    in_progress: "bg-blue-400/20 border-blue-400/50 text-blue-400",
+    completed: "bg-cream/10 border-cream/20 text-cream/40",
+    cancelled: "bg-red-400/10 border-red-400/30 text-red-400/60",
+  };
+
+  const hours = Array.from({ length: 18 }, (_, i) => i + 6);
+
+  function timeToHour(t: string): number {
+    const [h, m] = t.split(":").map(Number);
+    return h + m / 60;
+  }
+
+  const dayBookings = bookings.filter((b) => {
+    const bd = new Date(b.date).toISOString().split("T")[0];
+    return bd === selectedDate && b.status !== "cancelled";
+  });
+
+  function shiftDate(days: number) {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(d.toISOString().split("T")[0]);
+  }
+
+  function shiftMonth(dir: number) {
+    setCalMonth((prev) => {
+      let m = prev.month + dir;
+      let y = prev.year;
+      if (m < 0) { m = 11; y--; }
+      if (m > 11) { m = 0; y++; }
+      return { year: y, month: m };
+    });
+  }
+
+  const calDays = (() => {
+    const first = new Date(calMonth.year, calMonth.month, 1);
+    const startDay = first.getDay();
+    const daysInMonth = new Date(calMonth.year, calMonth.month + 1, 0).getDate();
+    const cells: (number | null)[] = Array(startDay).fill(null);
+    for (let i = 1; i <= daysInMonth; i++) cells.push(i);
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  })();
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-light">Schedule</h2>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setView("day")}
+            className={`text-xs px-3 py-1.5 border transition-colors ${view === "day" ? "border-gold text-gold bg-gold/10" : "border-cream/20 text-cream/50 hover:bg-cream/10"}`}
+          >
+            Day View
+          </button>
+          <button
+            onClick={() => setView("month")}
+            className={`text-xs px-3 py-1.5 border transition-colors ${view === "month" ? "border-gold text-gold bg-gold/10" : "border-cream/20 text-cream/50 hover:bg-cream/10"}`}
+          >
+            Month View
+          </button>
+        </div>
+      </div>
+
+      {view === "day" && (
+        <div>
+          <div className="flex items-center gap-4 mb-6">
+            <button onClick={() => shiftDate(-1)} className="text-cream/40 hover:text-cream/70 text-lg px-2">&lsaquo;</button>
+            <div className="text-center">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-transparent border-none text-cream text-center focus:outline-none cursor-pointer"
+              />
+              <p className="text-xs text-cream/40">
+                {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+              </p>
+            </div>
+            <button onClick={() => shiftDate(1)} className="text-cream/40 hover:text-cream/70 text-lg px-2">&rsaquo;</button>
+            <button
+              onClick={() => setSelectedDate(new Date().toISOString().split("T")[0])}
+              className="text-xs border border-cream/20 text-cream/50 px-2 py-1 hover:bg-cream/10 transition-colors ml-2"
+            >
+              Today
+            </button>
+          </div>
+
+          <div className="border border-cream/10 overflow-x-auto">
+            <div className="min-w-[600px]">
+              {/* Header row */}
+              <div className="grid border-b border-cream/10" style={{ gridTemplateColumns: "80px " + vehicles.map(() => "1fr").join(" ") }}>
+                <div className="p-2 text-xs text-cream/30 border-r border-cream/10">Time</div>
+                {vehicles.map((v) => (
+                  <div key={v.id} className="p-2 text-xs text-cream/50 text-center border-r border-cream/10 last:border-r-0">
+                    {v.name}
+                  </div>
+                ))}
+              </div>
+
+              {/* Time rows */}
+              {hours.map((hour) => (
+                <div key={hour} className="grid border-b border-cream/5" style={{ gridTemplateColumns: "80px " + vehicles.map(() => "1fr").join(" ") }}>
+                  <div className="p-2 text-xs text-cream/30 border-r border-cream/10">
+                    {hour % 12 === 0 ? 12 : hour % 12}:00 {hour < 12 ? "AM" : "PM"}
+                  </div>
+                  {vehicles.map((v) => {
+                    const cellBookings = dayBookings.filter((b) => {
+                      const vehicle = b.vehicleAssigned || b.vehicleRequest;
+                      if (vehicle !== v.type) return false;
+                      const start = timeToHour(b.pickupTime);
+                      const end = b.returnTime ? timeToHour(b.returnTime) : start + 2;
+                      return start <= hour && end > hour;
+                    });
+                    const isStart = cellBookings.some((b) => {
+                      const start = timeToHour(b.pickupTime);
+                      return Math.floor(start) === hour;
+                    });
+                    return (
+                      <div key={v.id} className="p-1 border-r border-cream/5 last:border-r-0 min-h-[40px] relative">
+                        {cellBookings.map((b) => (
+                          isStart || Math.floor(timeToHour(b.pickupTime)) === hour ? (
+                            <div
+                              key={b.id}
+                              className={`text-[10px] px-1.5 py-1 border rounded-sm ${statusColor[b.status] || "bg-cream/10 border-cream/20 text-cream/50"}`}
+                            >
+                              <span className="font-medium">{b.userName.split(" ")[0]}</span>
+                              <span className="ml-1 opacity-70">{b.pickupTime}{b.returnTime ? `–${b.returnTime}` : ""}</span>
+                            </div>
+                          ) : null
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {dayBookings.length === 0 && (
+            <p className="text-cream/30 text-sm text-center py-8">No bookings scheduled for this day.</p>
+          )}
+        </div>
+      )}
+
+      {view === "month" && (
+        <div>
+          <div className="flex items-center justify-center gap-6 mb-6">
+            <button onClick={() => shiftMonth(-1)} className="text-cream/40 hover:text-cream/70 text-lg px-2">&lsaquo;</button>
+            <h3 className="text-lg font-light min-w-[200px] text-center">
+              {monthNames[calMonth.month]} {calMonth.year}
+            </h3>
+            <button onClick={() => shiftMonth(1)} className="text-cream/40 hover:text-cream/70 text-lg px-2">&rsaquo;</button>
+          </div>
+
+          <div className="border border-cream/10">
+            <div className="grid grid-cols-7 border-b border-cream/10">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                <div key={d} className="p-2 text-xs text-cream/40 text-center">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {calDays.map((day, i) => {
+                if (day === null) return <div key={`e-${i}`} className="p-2 border-b border-r border-cream/5 min-h-[80px]" />;
+                const dateStr = `${calMonth.year}-${String(calMonth.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const dayBks = bookings.filter((b) => {
+                  const bd = new Date(b.date).toISOString().split("T")[0];
+                  return bd === dateStr && b.status !== "cancelled";
+                });
+                const isToday = dateStr === new Date().toISOString().split("T")[0];
+                return (
+                  <button
+                    key={`d-${day}`}
+                    onClick={() => { setSelectedDate(dateStr); setView("day"); }}
+                    className={`p-2 border-b border-r border-cream/5 min-h-[80px] text-left hover:bg-cream/5 transition-colors ${isToday ? "bg-gold/5" : ""}`}
+                  >
+                    <span className={`text-xs ${isToday ? "text-gold font-medium" : "text-cream/50"}`}>{day}</span>
+                    <div className="mt-1 space-y-0.5">
+                      {dayBks.slice(0, 3).map((b) => {
+                        const vehicle = b.vehicleAssigned || b.vehicleRequest;
+                        const color = vehicle === "rolls_royce" ? "bg-gold/30" : "bg-blue-400/30";
+                        return (
+                          <div key={b.id} className={`${color} rounded-sm px-1 py-0.5 text-[9px] text-cream/70 truncate`}>
+                            {b.pickupTime} {b.userName.split(" ")[0]}
+                          </div>
+                        );
+                      })}
+                      {dayBks.length > 3 && (
+                        <p className="text-[9px] text-cream/30">+{dayBks.length - 3} more</p>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex gap-4 mt-4 text-xs text-cream/40">
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-gold/30" /> Rolls-Royce</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-400/30" /> Escalade</div>
           </div>
         </div>
       )}
@@ -907,6 +1139,54 @@ function MemberProfile({ memberId, vehicles, onBack }: { memberId: string; vehic
                 </div>
               )}
 
+              {/* Activity Timeline */}
+              <div className="bg-cream/5 border border-cream/10 p-6">
+                <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70 mb-4">Activity Timeline</h3>
+                <div className="relative pl-6">
+                  <div className="absolute left-[7px] top-2 bottom-2 w-px bg-cream/10" />
+                  {(() => {
+                    const events: { date: string; type: string; label: string; detail: string; color: string }[] = [];
+                    events.push({
+                      date: member.createdAt,
+                      type: "joined",
+                      label: "Joined Palm Vintage",
+                      detail: member.membership ? (member.membership.program === "chauffeur" ? "Chauffeur Membership" : "Special Event") : "Member",
+                      color: "bg-gold",
+                    });
+                    if (member.membership) {
+                      events.push({
+                        date: member.membership.startDate,
+                        type: "membership",
+                        label: "Membership activated",
+                        detail: `${member.membership.program === "chauffeur" ? "Chauffeur" : "Special Event"} · ${member.membership.status}`,
+                        color: "bg-green-400",
+                      });
+                    }
+                    member.bookings.forEach((b) => {
+                      const statusLabel = b.status === "completed" ? "Completed ride" : b.status === "confirmed" ? "Ride confirmed" : b.status === "cancelled" ? "Ride cancelled" : "Ride requested";
+                      events.push({
+                        date: b.date,
+                        type: "booking",
+                        label: statusLabel,
+                        detail: `${b.pickupAddress}${b.vehicleAssigned ? ` · ${b.vehicleAssigned === "rolls_royce" ? "Rolls-Royce" : "Escalade"}` : ""}`,
+                        color: b.status === "completed" ? "bg-cream/40" : b.status === "confirmed" ? "bg-green-400" : b.status === "cancelled" ? "bg-red-400" : "bg-yellow-400",
+                      });
+                    });
+                    events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                    return events.slice(0, 15).map((ev, i) => (
+                      <div key={i} className="relative mb-4 last:mb-0">
+                        <div className={`absolute -left-6 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-navy-darkest ${ev.color}`} />
+                        <p className="text-xs text-cream/30 mb-0.5">
+                          {new Date(ev.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </p>
+                        <p className="text-sm text-cream/80">{ev.label}</p>
+                        <p className="text-xs text-cream/40">{ev.detail}</p>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+
               {/* Booking history with inspection access */}
               <div className="bg-cream/5 border border-cream/10 p-6">
                 <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70 mb-4">
@@ -1000,58 +1280,130 @@ function InquiriesTab({ inquiries }: { inquiries: AdminProps["inquiries"] }) {
     not_sure: "Not Sure",
   };
 
+  const total = inquiries.length;
+  const converted = inquiries.filter((i) => i.status === "converted").length;
+  const contacted = inquiries.filter((i) => i.status === "contacted").length;
+  const newCount = inquiries.filter((i) => i.status === "new").length;
+  const conversionRate = total > 0 ? ((converted / total) * 100).toFixed(0) : "0";
+
+  const sources = inquiries.reduce<Record<string, number>>((acc, i) => {
+    const src = i.source || "direct";
+    acc[src] = (acc[src] || 0) + 1;
+    return acc;
+  }, {});
+
+  const statusColor: Record<string, string> = {
+    new: "bg-gold/10 text-gold",
+    contacted: "bg-blue-400/10 text-blue-400",
+    converted: "bg-green-400/10 text-green-400",
+    closed: "bg-cream/10 text-cream/40",
+  };
+
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-light mb-4">Inquiries</h2>
-      {inquiries.map((i) => (
-        <div key={i.id} className="bg-cream/5 border border-cream/10 p-5">
-          <div className="flex items-start justify-between gap-4 mb-2">
-            <div>
-              <p className="font-medium">{i.name}</p>
-              <p className="text-xs text-cream/40">
-                {i.email} {i.phone && `· ${i.phone}`}
-              </p>
-            </div>
-            <span
-              className={`text-xs uppercase tracking-wider px-2 py-1 ${
-                i.status === "new"
-                  ? "bg-gold/10 text-gold"
-                  : i.status === "contacted"
-                  ? "bg-blue-400/10 text-blue-400"
-                  : "bg-green-400/10 text-green-400"
-              }`}
-            >
-              {i.status}
-            </span>
-          </div>
-          <p className="text-sm text-cream/50 mb-1">
-            Interested in: {programLabels[i.program] || i.program}
-          </p>
-          {i.message && (
-            <p className="text-sm text-cream/60 italic mb-3">&ldquo;{i.message}&rdquo;</p>
-          )}
-          <p className="text-xs text-cream/30 mb-3">
-            {new Date(i.createdAt).toLocaleDateString()} at{" "}
-            {new Date(i.createdAt).toLocaleTimeString()}
-          </p>
-          {i.status === "new" && (
-            <div className="flex gap-3">
-              <button
-                onClick={() => updateInquiryStatus(i.id, "contacted")}
-                className="text-xs border border-blue-400/50 text-blue-400 px-3 py-1.5 hover:bg-blue-400/10 transition-colors"
-              >
-                Mark Contacted
-              </button>
-              <button
-                onClick={() => updateInquiryStatus(i.id, "converted")}
-                className="text-xs border border-green-400/50 text-green-400 px-3 py-1.5 hover:bg-green-400/10 transition-colors"
-              >
-                Mark Converted
-              </button>
-            </div>
-          )}
+    <div>
+      {/* Conversion Analytics */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-2xl font-light">{total}</p>
+          <p className="text-xs text-cream/40">Total Inquiries</p>
         </div>
-      ))}
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-2xl font-light text-gold">{newCount}</p>
+          <p className="text-xs text-cream/40">New</p>
+        </div>
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-2xl font-light text-green-400">{converted}</p>
+          <p className="text-xs text-cream/40">Converted</p>
+        </div>
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-2xl font-light">{conversionRate}%</p>
+          <p className="text-xs text-cream/40">Conversion Rate</p>
+        </div>
+      </div>
+
+      {/* Source Breakdown */}
+      {Object.keys(sources).length > 1 && (
+        <div className="bg-cream/5 border border-cream/10 p-4 mb-6">
+          <p className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-3">By Source</p>
+          <div className="flex gap-4 flex-wrap">
+            {Object.entries(sources).sort((a, b) => b[1] - a[1]).map(([src, count]) => (
+              <div key={src} className="flex items-center gap-2">
+                <span className="text-sm capitalize">{src}</span>
+                <span className="text-xs text-cream/40">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <h2 className="text-lg font-light mb-4">Inquiries</h2>
+      <div className="space-y-3">
+        {inquiries.map((i) => (
+          <div key={i.id} className="bg-cream/5 border border-cream/10 p-5">
+            <div className="flex items-start justify-between gap-4 mb-2">
+              <div>
+                <p className="font-medium">{i.name}</p>
+                <p className="text-xs text-cream/40">
+                  {i.email} {i.phone && `· ${i.phone}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {i.source && (
+                  <span className="text-[10px] uppercase tracking-wider text-cream/30 border border-cream/10 px-2 py-0.5">
+                    {i.source}
+                  </span>
+                )}
+                <span className={`text-xs uppercase tracking-wider px-2 py-1 ${statusColor[i.status] || statusColor.new}`}>
+                  {i.status}
+                </span>
+              </div>
+            </div>
+            <p className="text-sm text-cream/50 mb-1">
+              Interested in: {programLabels[i.program] || i.program}
+            </p>
+            {i.message && (
+              <p className="text-sm text-cream/60 italic mb-3">&ldquo;{i.message}&rdquo;</p>
+            )}
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-cream/30">
+                {new Date(i.createdAt).toLocaleDateString()} at{" "}
+                {new Date(i.createdAt).toLocaleTimeString()}
+                {i.convertedAt && (
+                  <span className="text-green-400/50 ml-2">
+                    Converted {new Date(i.convertedAt).toLocaleDateString()}
+                  </span>
+                )}
+              </p>
+              {i.status !== "converted" && (
+                <div className="flex gap-2">
+                  {i.status !== "contacted" && (
+                    <button
+                      onClick={() => updateInquiryStatus(i.id, "contacted")}
+                      className="text-[11px] border border-blue-400/40 text-blue-400 px-2.5 py-1 hover:bg-blue-400/10 transition-colors"
+                    >
+                      Contacted
+                    </button>
+                  )}
+                  <button
+                    onClick={() => updateInquiryStatus(i.id, "converted")}
+                    className="text-[11px] border border-green-400/40 text-green-400 px-2.5 py-1 hover:bg-green-400/10 transition-colors"
+                  >
+                    Converted
+                  </button>
+                  {i.status !== "closed" && (
+                    <button
+                      onClick={() => updateInquiryStatus(i.id, "closed")}
+                      className="text-[11px] border border-cream/15 text-cream/40 px-2.5 py-1 hover:bg-cream/10 transition-colors"
+                    >
+                      Close
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1182,6 +1534,274 @@ function CreateMemberForm() {
           {status === "submitting" ? "Creating..." : "Create Member"}
         </button>
       </form>
+    </div>
+  );
+}
+
+/* ─── Ratings Tab ─── */
+interface RatingItem {
+  id: string;
+  stars: number;
+  comment: string | null;
+  createdAt: string;
+  memberName: string;
+  memberEmail: string;
+  memberPhoto: string | null;
+  bookingDate: string;
+  bookingTime: string;
+  vehicle: string | null;
+}
+
+function RatingsTab() {
+  const [ratings, setRatings] = useState<RatingItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/admin/ratings")
+      .then((r) => r.json())
+      .then((data) => { setRatings(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p className="text-cream/40 text-sm">Loading ratings...</p>;
+
+  const avgStars = ratings.length > 0 ? (ratings.reduce((s, r) => s + r.stars, 0) / ratings.length).toFixed(1) : "—";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-light">Member Ratings</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-cream/40 text-sm">{ratings.length} total</span>
+          <span className="text-gold text-lg font-mono">{avgStars} <span className="text-sm">&#9733;</span></span>
+        </div>
+      </div>
+
+      {ratings.length === 0 ? (
+        <p className="text-cream/40 text-sm">No ratings yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {ratings.map((r) => (
+            <div key={r.id} className="bg-cream/5 border border-cream/10 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  {r.memberPhoto ? (
+                    <img src={r.memberPhoto} alt={r.memberName} className="w-10 h-10 rounded-full object-cover border border-cream/10" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-navy-deep border border-cream/10 flex items-center justify-center text-cream/50 text-sm font-mono">
+                      {r.memberName.charAt(0)}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm">{r.memberName}</p>
+                    <p className="text-xs text-cream/40">{r.memberEmail}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="flex gap-0.5">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <span key={s} className={`text-sm ${s <= r.stars ? "text-gold" : "text-cream/20"}`}>&#9733;</span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-cream/40 mt-0.5">
+                    {new Date(r.bookingDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {r.bookingTime}
+                  </p>
+                  {r.vehicle && (
+                    <p className="text-xs text-cream/30">{r.vehicle === "rolls_royce" ? "Rolls-Royce" : "Escalade"}</p>
+                  )}
+                </div>
+              </div>
+              {r.comment && (
+                <p className="text-sm text-cream/60 mt-3 italic">&ldquo;{r.comment}&rdquo;</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Admin Events Tab ─── */
+interface AdminEvent {
+  id: string;
+  title: string;
+  description: string | null;
+  date: string;
+  endDate: string | null;
+  location: string | null;
+  capacity: number | null;
+  rsvpCount: number;
+  rsvps: { id: string; userName: string; userEmail: string; status: string }[];
+}
+
+function AdminEventsTab() {
+  const [events, setEvents] = useState<AdminEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [form, setForm] = useState({ title: "", description: "", date: "", endDate: "", location: "", capacity: "" });
+
+  useEffect(() => {
+    fetch("/api/admin/events")
+      .then((r) => r.json())
+      .then((data) => { setEvents(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function handleCreate() {
+    if (!form.title || !form.date) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (res.ok) {
+        const event = await res.json();
+        setEvents((prev) => [{ ...event, date: event.date, rsvpCount: 0, rsvps: [] }, ...prev]);
+        setForm({ title: "", description: "", date: "", endDate: "", location: "", capacity: "" });
+        setCreating(false);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      const res = await fetch("/api/admin/events", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setEvents((prev) => prev.filter((e) => e.id !== id));
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  const inputClass = "w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors";
+  const labelClass = "block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2";
+
+  if (loading) return <p className="text-cream/40 text-sm">Loading events...</p>;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-light">Events</h2>
+        {!creating && (
+          <button
+            onClick={() => setCreating(true)}
+            className="text-xs border border-gold/40 text-gold px-4 py-2 hover:bg-gold/10 transition-colors"
+          >
+            + New Event
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <div className="bg-cream/5 border border-cream/10 p-6 mb-6 space-y-4">
+          <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70">Create Event</h3>
+          <div>
+            <label className={labelClass}>Title *</label>
+            <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Description</label>
+            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className={`${inputClass} resize-none`} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Date & Time *</label>
+              <input type="datetime-local" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>End Time</label>
+              <input type="datetime-local" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className={inputClass} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Location</label>
+              <input type="text" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} className={inputClass} placeholder="Venue or address" />
+            </div>
+            <div>
+              <label className={labelClass}>Capacity</label>
+              <input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className={inputClass} placeholder="Leave empty for unlimited" />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={handleCreate} disabled={saving || !form.title || !form.date} className="border border-gold/50 text-gold px-5 py-2 text-xs uppercase tracking-[0.12em] hover:bg-gold/10 transition-colors disabled:opacity-50">
+              {saving ? "Creating..." : "Create Event"}
+            </button>
+            <button onClick={() => setCreating(false)} className="border border-cream/20 text-cream/50 px-5 py-2 text-xs uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {events.length === 0 ? (
+        <p className="text-cream/40 text-sm">No events created yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {events.map((e) => (
+            <div key={e.id} className="bg-cream/5 border border-cream/10">
+              <div className="p-4 flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium">{e.title}</h3>
+                  <p className="text-xs text-gold/70 font-mono mt-0.5">
+                    {new Date(e.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    {" at "}
+                    {new Date(e.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  </p>
+                  {e.location && <p className="text-xs text-cream/40 mt-0.5">{e.location}</p>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-cream/40">{e.rsvpCount} RSVPs</span>
+                  <button
+                    onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
+                    className="text-[11px] border border-cream/20 text-cream/50 px-2.5 py-1 hover:bg-cream/10 transition-colors"
+                  >
+                    {expandedId === e.id ? "Hide" : "Details"}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(e.id)}
+                    className="text-[11px] text-red-400/50 hover:text-red-400 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+              {expandedId === e.id && (
+                <div className="border-t border-cream/10 p-4">
+                  {e.description && <p className="text-sm text-cream/60 mb-3">{e.description}</p>}
+                  <p className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-2">RSVPs ({e.rsvps.length})</p>
+                  {e.rsvps.length === 0 ? (
+                    <p className="text-xs text-cream/30">No RSVPs yet.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {e.rsvps.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between text-sm">
+                          <span>{r.userName} <span className="text-cream/30 text-xs">({r.userEmail})</span></span>
+                          <span className={`text-xs uppercase ${r.status === "attending" ? "text-green-400" : "text-cream/40"}`}>{r.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
