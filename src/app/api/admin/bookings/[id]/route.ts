@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { sendBookingConfirmed, sendRideStarting, sendRatingRequest } from "@/lib/email";
 
 export async function PATCH(
   request: Request,
@@ -24,7 +25,38 @@ export async function PATCH(
   if (status) data.status = status;
   if (vehicleAssigned) data.vehicleAssigned = vehicleAssigned;
 
-  await prisma.booking.update({ where: { id }, data });
+  const booking = await prisma.booking.update({
+    where: { id },
+    data,
+    include: { user: { select: { email: true, name: true } } },
+  });
+
+  if (status === "confirmed") {
+    sendBookingConfirmed(booking.user.email, {
+      userName: booking.user.name,
+      date: booking.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+      pickupTime: booking.pickupTime,
+      pickupAddress: booking.pickupAddress,
+      vehicleAssigned: booking.vehicleAssigned,
+    }).catch((err) => console.error("[email] Failed to send booking confirmed:", err));
+  }
+
+  if (status === "in_progress") {
+    sendRideStarting(booking.user.email, {
+      userName: booking.user.name,
+      date: booking.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+      pickupTime: booking.pickupTime,
+      vehicleAssigned: booking.vehicleAssigned,
+    }).catch((err) => console.error("[email] Failed to send ride starting:", err));
+  }
+
+  if (status === "completed") {
+    sendRatingRequest(booking.user.email, {
+      userName: booking.user.name,
+      bookingId: booking.id,
+      date: booking.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+    }).catch((err) => console.error("[email] Failed to send rating request:", err));
+  }
 
   return NextResponse.json({ success: true });
 }

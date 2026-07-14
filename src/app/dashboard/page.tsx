@@ -34,6 +34,7 @@ export default async function DashboardPage() {
         email: user.email,
         phone: user.phone,
         photoUrl: user.photoUrl,
+        birthday: user.birthday?.toISOString() || null,
       }}
       membership={
         user.membership

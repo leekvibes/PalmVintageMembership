@@ -111,7 +111,13 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center mt-8 text-cream/30 text-xs">
+        <div className="text-center mt-6">
+          <a href="/forgot-password" className="text-cream/40 text-xs hover:text-gold transition-colors">
+            Forgot your password?
+          </a>
+        </div>
+
+        <p className="text-center mt-4 text-cream/30 text-xs">
           Members are onboarded by invitation. Contact us to inquire.
         </p>
       </div>

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { date, pickupTime, returnTime, pickupAddress, dropoffAddress, vehicleRequest, passengers, notes } = body;
+    const { date, pickupTime, returnTime, pickupAddress, dropoffAddress, vehicleRequest, passengers, notes, isRecurring, recurrenceRule, recurrenceEndDate } = body;
 
     if (!date || !pickupTime || !pickupAddress || !dropoffAddress) {
       return NextResponse.json(
@@ -74,19 +74,54 @@ export async function POST(request: Request) {
       }
     }
 
-    const booking = await prisma.booking.create({
-      data: {
-        userId: session.user.id,
-        date: new Date(date),
-        pickupTime,
-        returnTime: returnTime || null,
-        pickupAddress,
-        dropoffAddress,
-        vehicleRequest: vehicleRequest || null,
-        passengers: Number(passengers) || 1,
-        notes: notes || null,
-      },
-    });
+    const bookingData = {
+      userId: session.user.id,
+      date: new Date(date),
+      pickupTime,
+      returnTime: returnTime || null,
+      pickupAddress,
+      dropoffAddress,
+      vehicleRequest: vehicleRequest || null,
+      passengers: Number(passengers) || 1,
+      notes: notes || null,
+      isRecurring: !!isRecurring,
+      recurrenceRule: recurrenceRule || null,
+      recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null,
+    };
+
+    const booking = await prisma.booking.create({ data: bookingData });
+
+    if (isRecurring && recurrenceRule && recurrenceEndDate) {
+      const childBookings = [];
+      const startDate = new Date(date);
+      const endDate = new Date(recurrenceEndDate);
+      let cursor = new Date(startDate);
+
+      const increment = recurrenceRule === "weekly" ? 7 : recurrenceRule === "biweekly" ? 14 : 0;
+
+      if (increment > 0) {
+        cursor.setDate(cursor.getDate() + increment);
+        while (cursor <= endDate) {
+          childBookings.push({
+            userId: session.user.id,
+            date: new Date(cursor),
+            pickupTime,
+            returnTime: returnTime || null,
+            pickupAddress,
+            dropoffAddress,
+            vehicleRequest: vehicleRequest || null,
+            passengers: Number(passengers) || 1,
+            notes: notes || null,
+            parentBookingId: booking.id,
+          });
+          cursor.setDate(cursor.getDate() + increment);
+        }
+      }
+
+      if (childBookings.length > 0) {
+        await prisma.booking.createMany({ data: childBookings });
+      }
+    }
 
     await sendBookingNotification({
       userName: session.user.name || "Member",

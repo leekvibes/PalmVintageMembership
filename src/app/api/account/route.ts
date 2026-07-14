@@ -13,11 +13,12 @@ export async function PATCH(request: Request) {
   const { action } = body;
 
   if (action === "update-profile") {
-    const { name, phone, photoUrl } = body;
-    const data: Record<string, string | null> = {};
+    const { name, phone, photoUrl, birthday } = body;
+    const data: Record<string, string | Date | null> = {};
     if (name !== undefined) data.name = name;
     if (phone !== undefined) data.phone = phone || null;
     if (photoUrl !== undefined) data.photoUrl = photoUrl || null;
+    if (birthday !== undefined) data.birthday = birthday ? new Date(birthday + "T00:00:00Z") : null;
 
     await prisma.user.update({ where: { id: session.user.id }, data });
     return NextResponse.json({ success: true });

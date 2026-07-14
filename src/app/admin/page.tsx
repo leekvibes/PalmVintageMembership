@@ -20,7 +20,7 @@ export default async function AdminPage() {
       orderBy: { createdAt: "desc" },
     }),
     prisma.booking.findMany({
-      include: { user: { select: { name: true, email: true } } },
+      include: { user: { select: { name: true, email: true, birthday: true } } },
       orderBy: { date: "desc" },
       take: 50,
     }),
@@ -48,20 +48,27 @@ export default async function AdminPage() {
           : null,
         tripCount: m.bookings.filter((b) => b.status === "completed").length,
       }))}
-      bookings={bookings.map((b) => ({
-        id: b.id,
-        userName: b.user.name,
-        userEmail: b.user.email,
-        date: b.date.toISOString(),
-        pickupTime: b.pickupTime,
-        returnTime: b.returnTime,
-        pickupAddress: b.pickupAddress,
-        dropoffAddress: b.dropoffAddress,
-        vehicleRequest: b.vehicleRequest,
-        vehicleAssigned: b.vehicleAssigned,
-        status: b.status,
-        passengers: b.passengers,
-      }))}
+      bookings={bookings.map((b) => {
+        const bday = b.user.birthday;
+        const isBirthday = bday
+          ? bday.getUTCMonth() === b.date.getUTCMonth() && bday.getUTCDate() === b.date.getUTCDate()
+          : false;
+        return {
+          id: b.id,
+          userName: b.user.name,
+          userEmail: b.user.email,
+          date: b.date.toISOString(),
+          pickupTime: b.pickupTime,
+          returnTime: b.returnTime,
+          pickupAddress: b.pickupAddress,
+          dropoffAddress: b.dropoffAddress,
+          vehicleRequest: b.vehicleRequest,
+          vehicleAssigned: b.vehicleAssigned,
+          status: b.status,
+          passengers: b.passengers,
+          isBirthday,
+        };
+      })}
       inquiries={inquiries.map((i) => ({
         id: i.id,
         name: i.name,

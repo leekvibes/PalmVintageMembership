@@ -67,6 +67,36 @@ export async function POST(request: Request) {
   return NextResponse.json(event);
 }
 
+export async function PATCH(request: Request) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const admin = await prisma.user.findUnique({ where: { id: session.user.id } });
+  if (!admin || admin.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id, title, description, date, endDate, location, capacity } = await request.json();
+
+  if (!id) {
+    return NextResponse.json({ error: "Event ID is required" }, { status: 400 });
+  }
+
+  const data: Record<string, unknown> = {};
+  if (title !== undefined) data.title = title;
+  if (description !== undefined) data.description = description || null;
+  if (date !== undefined) data.date = new Date(date);
+  if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
+  if (location !== undefined) data.location = location || null;
+  if (capacity !== undefined) data.capacity = capacity ? parseInt(capacity) : null;
+
+  const event = await prisma.event.update({ where: { id }, data });
+
+  return NextResponse.json(event);
+}
+
 export async function DELETE(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {

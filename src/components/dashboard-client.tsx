@@ -11,6 +11,7 @@ interface DashboardProps {
     email: string;
     phone: string | null;
     photoUrl: string | null;
+    birthday: string | null;
   };
   membership: {
     program: string;
@@ -292,7 +293,7 @@ function AccountTab({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: user.name, phone: user.phone || "", photoUrl: user.photoUrl || "" });
+  const [form, setForm] = useState({ name: user.name, phone: user.phone || "", photoUrl: user.photoUrl || "", birthday: user.birthday?.slice(0, 10) || "" });
 
   const [changingPassword, setChangingPassword] = useState(false);
   const [pwSaving, setPwSaving] = useState(false);
@@ -385,6 +386,10 @@ function AccountTab({
                 <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inputClass} placeholder="(555) 000-0000" />
               </div>
               <div>
+                <label className={labelClass}>Birthday</label>
+                <input type="date" value={form.birthday} onChange={(e) => setForm({ ...form, birthday: e.target.value })} className={inputClass} />
+              </div>
+              <div>
                 <label className={labelClass}>Profile Photo</label>
                 <label className="block border border-dashed border-cream/30 hover:border-gold/50 px-3 py-2 text-center cursor-pointer transition-colors">
                   <span className="text-xs text-cream/50">Choose photo...</span>
@@ -449,7 +454,7 @@ function AccountTab({
               {saving ? "Saving..." : "Save Changes"}
             </button>
             <button
-              onClick={() => { setEditing(false); setForm({ name: user.name, phone: user.phone || "", photoUrl: user.photoUrl || "" }); }}
+              onClick={() => { setEditing(false); setForm({ name: user.name, phone: user.phone || "", photoUrl: user.photoUrl || "", birthday: user.birthday?.slice(0, 10) || "" }); }}
               className="border border-cream/20 text-cream/50 px-5 py-2.5 text-sm uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
             >
               Cancel
@@ -540,6 +545,9 @@ function AccountTab({
       <RidePreferencesForm
         initial={ridePreference}
       />
+
+      {/* Payment Methods */}
+      <PaymentMethodsSection />
 
       {/* Digital Membership Card */}
       {membership && (
@@ -1446,6 +1454,140 @@ function RidePreferencesForm({
         </div>
       )}
       {saved && <p className="text-xs text-green-400">Preferences saved.</p>}
+    </div>
+  );
+}
+
+function PaymentMethodsSection() {
+  const [methods, setMethods] = useState<{ id: string; type: string; last4: string; brand: string | null; expMonth: number | null; expYear: number | null; isDefault: boolean }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ type: "card", last4: "", brand: "", expMonth: "", expYear: "", isDefault: false });
+
+  useEffect(() => {
+    fetch("/api/payment-methods")
+      .then((r) => r.json())
+      .then((data) => { setMethods(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function handleAdd() {
+    if (!form.last4 || form.last4.length !== 4) return;
+    const res = await fetch("/api/payment-methods", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: form.type,
+        last4: form.last4,
+        brand: form.brand || null,
+        expMonth: form.expMonth ? Number(form.expMonth) : null,
+        expYear: form.expYear ? Number(form.expYear) : null,
+        isDefault: form.isDefault,
+      }),
+    });
+    if (res.ok) {
+      const method = await res.json();
+      if (form.isDefault) {
+        setMethods((prev) => prev.map((m) => ({ ...m, isDefault: false })).concat(method));
+      } else {
+        setMethods((prev) => [...prev, method]);
+      }
+      setAdding(false);
+      setForm({ type: "card", last4: "", brand: "", expMonth: "", expYear: "", isDefault: false });
+    }
+  }
+
+  async function handleDelete(id: string) {
+    await fetch(`/api/payment-methods?id=${id}`, { method: "DELETE" });
+    setMethods((prev) => prev.filter((m) => m.id !== id));
+  }
+
+  const inputClass = "w-full bg-cream/5 border border-cream/15 px-3 py-2 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors";
+  const labelClass = "block text-xs uppercase tracking-[0.12em] text-cream/50 mb-1.5";
+
+  return (
+    <div className="bg-cream/5 border border-cream/10 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70">Payment Methods</h3>
+        {!adding && (
+          <button onClick={() => setAdding(true)} className="text-xs text-gold hover:text-gold-bright transition-colors">
+            + Add
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-cream/30 text-xs">Loading...</p>
+      ) : methods.length === 0 && !adding ? (
+        <p className="text-cream/40 text-sm">No payment methods on file.</p>
+      ) : (
+        <div className="space-y-3">
+          {methods.map((m) => (
+            <div key={m.id} className="flex items-center justify-between bg-cream/5 border border-cream/10 px-4 py-3">
+              <div>
+                <span className="text-sm text-cream/80">
+                  {m.brand || m.type} ending in {m.last4}
+                </span>
+                {m.expMonth && m.expYear && (
+                  <span className="text-cream/40 text-xs ml-2">
+                    Exp {String(m.expMonth).padStart(2, "0")}/{m.expYear}
+                  </span>
+                )}
+                {m.isDefault && (
+                  <span className="ml-2 text-[10px] uppercase tracking-wider text-gold bg-gold/10 px-1.5 py-0.5">Default</span>
+                )}
+              </div>
+              <button onClick={() => handleDelete(m.id)} className="text-xs text-red-400/60 hover:text-red-400 transition-colors">
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adding && (
+        <div className="mt-4 space-y-3 border-t border-cream/10 pt-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Type</label>
+              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className={inputClass + " appearance-none"}>
+                <option value="card" className="bg-navy-darkest">Credit/Debit Card</option>
+                <option value="bank" className="bg-navy-darkest">Bank Account</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Last 4 Digits</label>
+              <input type="text" maxLength={4} pattern="[0-9]{4}" value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value.replace(/\D/g, "") })} className={inputClass} placeholder="1234" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className={labelClass}>Brand</label>
+              <input type="text" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} className={inputClass} placeholder="Visa" />
+            </div>
+            <div>
+              <label className={labelClass}>Exp Month</label>
+              <input type="number" min="1" max="12" value={form.expMonth} onChange={(e) => setForm({ ...form, expMonth: e.target.value })} className={inputClass} placeholder="01" />
+            </div>
+            <div>
+              <label className={labelClass}>Exp Year</label>
+              <input type="number" min="2024" max="2040" value={form.expYear} onChange={(e) => setForm({ ...form, expYear: e.target.value })} className={inputClass} placeholder="2028" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} className="accent-gold" />
+            <span className="text-xs text-cream/50">Set as default</span>
+          </label>
+          <div className="flex gap-3">
+            <button onClick={handleAdd} className="border border-gold/50 text-gold px-4 py-2 text-xs uppercase tracking-[0.12em] hover:bg-gold/10 transition-colors">
+              Save
+            </button>
+            <button onClick={() => setAdding(false)} className="border border-cream/20 text-cream/50 px-4 py-2 text-xs uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

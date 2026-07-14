@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 
 interface BookingFormProps {
   businessHours: { open: string; close: string };
@@ -14,22 +14,18 @@ interface BookingFormProps {
   ridePreference?: { vehicleRequest: string | null; passengers: number; notes: string | null } | null;
 }
 
-interface VehicleAvailability {
-  vehicleId: string;
-  vehicleType: string;
-  vehicleName: string;
-  available: boolean;
-}
-
 export function BookingForm({ businessHours, prefill, savedAddresses: initialAddresses, ridePreference }: BookingFormProps) {
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "review" | "submitting" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [date, setDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
   const [returnTime, setReturnTime] = useState("");
   const [vehicleRequest, setVehicleRequest] = useState(prefill?.vehicleRequest || ridePreference?.vehicleRequest || "");
-  const [availability, setAvailability] = useState<VehicleAvailability[] | null>(null);
-  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [passengers, setPassengers] = useState(prefill?.passengers || ridePreference?.passengers || 1);
+  const [notes, setNotes] = useState(ridePreference?.notes || "");
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceRule, setRecurrenceRule] = useState("weekly");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [savedAddresses, setSavedAddresses] = useState(initialAddresses || []);
   const [pickupAddress, setPickupAddress] = useState(prefill?.pickupAddress || "");
   const [dropoffAddress, setDropoffAddress] = useState(prefill?.dropoffAddress || "");
@@ -54,42 +50,28 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
     }
   }
 
-  const checkAvailability = useCallback(async () => {
-    if (!date || !pickupTime) {
-      setAvailability(null);
-      return;
-    }
-
-    setCheckingAvailability(true);
-    try {
-      const params = new URLSearchParams({ date, pickupTime });
-      if (returnTime) params.set("returnTime", returnTime);
-      if (vehicleRequest) params.set("vehicleType", vehicleRequest);
-
-      const res = await fetch(`/api/bookings/availability?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setAvailability(data.availability);
-      }
-    } catch {
-      // silent — don't block booking
-    } finally {
-      setCheckingAvailability(false);
-    }
-  }, [date, pickupTime, returnTime, vehicleRequest]);
-
-  useEffect(() => {
-    const timer = setTimeout(checkAvailability, 400);
-    return () => clearTimeout(timer);
-  }, [checkAvailability]);
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleReview(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setStatus("review");
+  }
+
+  async function handleConfirmSubmit() {
     setStatus("submitting");
     setErrorMsg("");
 
-    const form = e.currentTarget;
-    const data = Object.fromEntries(new FormData(form));
+    const data = {
+      date,
+      pickupTime,
+      returnTime: returnTime || undefined,
+      pickupAddress,
+      dropoffAddress,
+      vehicleRequest: vehicleRequest || undefined,
+      passengers,
+      notes: notes || undefined,
+      isRecurring: isRecurring || undefined,
+      recurrenceRule: isRecurring ? recurrenceRule : undefined,
+      recurrenceEndDate: isRecurring ? recurrenceEndDate : undefined,
+    };
 
     try {
       const res = await fetch("/api/bookings", {
@@ -104,14 +86,6 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
       }
 
       setStatus("success");
-      form.reset();
-      setDate("");
-      setPickupTime("");
-      setReturnTime("");
-      setVehicleRequest("");
-      setAvailability(null);
-      setPickupAddress("");
-      setDropoffAddress("");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       setStatus("error");
@@ -125,11 +99,29 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
           <span className="text-gold text-2xl">&#10003;</span>
         </div>
         <h3 className="text-2xl font-light mb-3">Ride Requested</h3>
-        <p className="text-cream/60 mb-6">
-          Our team will confirm your booking shortly.
+        <p className="text-cream/60 mb-3">
+          Your ride request has been submitted. You will receive a confirmation
+          to the portal and via email within 6 hours.
+        </p>
+        <p className="text-cream/40 text-sm mb-6">
+          If there is a scheduling conflict, we will notify you to pick a
+          different time or you can email Palm directly for alternatives.
         </p>
         <button
-          onClick={() => setStatus("idle")}
+          onClick={() => {
+            setStatus("idle");
+            setDate("");
+            setPickupTime("");
+            setReturnTime("");
+            setVehicleRequest("");
+            setPassengers(1);
+            setNotes("");
+            setIsRecurring(false);
+            setRecurrenceRule("weekly");
+            setRecurrenceEndDate("");
+            setPickupAddress("");
+            setDropoffAddress("");
+          }}
           className="text-gold text-sm hover:text-gold-bright transition-colors"
         >
           Book another ride
@@ -138,30 +130,75 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
     );
   }
 
+  const vehicleLabel = vehicleRequest === "rolls_royce" ? "Rolls-Royce" : vehicleRequest === "escalade" ? "Cadillac Escalade" : "No preference";
+
+  if (status === "review" || status === "submitting") {
+    return (
+      <div className="max-w-lg">
+        <h2 className="text-lg font-light mb-2">Review Your Ride Request</h2>
+        <p className="text-cream/40 text-sm mb-6">
+          Please confirm the details below before submitting.
+        </p>
+
+        <div className="border border-cream/15 divide-y divide-cream/10">
+          <ReviewRow label="Date" value={new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} />
+          <ReviewRow label="Pickup Time" value={pickupTime} />
+          {returnTime && <ReviewRow label="Return Time" value={returnTime} />}
+          <ReviewRow label="Pickup Address" value={pickupAddress} />
+          {dropoffAddress && <ReviewRow label="Drop-off Address" value={dropoffAddress} />}
+          <ReviewRow label="Vehicle Preference" value={vehicleLabel} />
+          <ReviewRow label="Passengers" value={String(passengers)} />
+          {notes && <ReviewRow label="Notes" value={notes} />}
+          {isRecurring && (
+            <ReviewRow label="Recurring" value={`${recurrenceRule === "weekly" ? "Every week" : "Every 2 weeks"} until ${new Date(recurrenceEndDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`} />
+          )}
+        </div>
+
+        <div className="bg-cream/5 border border-cream/15 p-4 mt-4 text-sm text-cream/60">
+          After submitting, our team will confirm your ride within 6 hours.
+          You will be notified via the portal and email once confirmed.
+        </div>
+
+        {errorMsg && <p className="text-red-400 text-sm mt-3">{errorMsg}</p>}
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={handleConfirmSubmit}
+            disabled={status === "submitting"}
+            className="flex-1 border border-gold/60 text-gold px-8 py-4 text-sm uppercase tracking-[0.14em] hover:bg-gold/10 active:bg-gold/20 transition-colors disabled:opacity-50"
+          >
+            {status === "submitting" ? "Submitting..." : "Confirm & Submit"}
+          </button>
+          <button
+            onClick={() => { setStatus("idle"); setErrorMsg(""); }}
+            disabled={status === "submitting"}
+            className="border border-cream/20 text-cream/50 px-6 py-4 text-sm uppercase tracking-[0.14em] hover:bg-cream/10 transition-colors disabled:opacity-50"
+          >
+            Edit
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const minDate = tomorrow.toISOString().split("T")[0];
-
-  const selectedVehicleAvail = vehicleRequest && availability
-    ? availability.find((a) => a.vehicleType === vehicleRequest)
-    : null;
-
-  const anyUnavailable = availability?.some((a) => !a.available);
 
   return (
     <div>
       <h2 className="text-lg font-light mb-2">Book a Ride</h2>
       <p className="text-cream/40 text-sm mb-6">
         Available daily from {businessHours.open} to {businessHours.close}. Our
-        team will confirm availability and vehicle assignment.
+        team will confirm your ride within 6 hours.
       </p>
 
-      <AvailabilityCalendar
+      <DatePicker
         selectedDate={date}
         onSelectDate={(d) => setDate(d)}
       />
 
-      <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6 max-w-lg mt-8">
+      <form onSubmit={handleReview} className="space-y-5 sm:space-y-6 max-w-lg mt-8">
         <div>
           <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
             Date *
@@ -256,45 +293,12 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
               name="passengers"
               min="1"
               max="6"
-              defaultValue={prefill?.passengers || ridePreference?.passengers || 1}
+              value={passengers}
+              onChange={(e) => setPassengers(Number(e.target.value))}
               className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm focus:outline-none focus:border-gold/50 transition-colors rounded-none"
             />
           </div>
         </div>
-
-        {/* Availability indicator */}
-        {date && pickupTime && availability && (
-          <div className={`border p-4 text-sm ${
-            selectedVehicleAvail && !selectedVehicleAvail.available
-              ? "border-red-400/30 bg-red-400/5"
-              : anyUnavailable
-              ? "border-yellow-400/30 bg-yellow-400/5"
-              : "border-green-400/30 bg-green-400/5"
-          }`}>
-            {checkingAvailability ? (
-              <p className="text-cream/50">Checking availability...</p>
-            ) : (
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">Vehicle Availability</p>
-                {availability.map((a) => (
-                  <div key={a.vehicleId} className="flex items-center justify-between">
-                    <span className="text-cream/70">{a.vehicleName}</span>
-                    {a.available ? (
-                      <span className="text-green-400 text-xs uppercase tracking-wider">Available</span>
-                    ) : (
-                      <span className="text-red-400 text-xs uppercase tracking-wider">Booked</span>
-                    )}
-                  </div>
-                ))}
-                {selectedVehicleAvail && !selectedVehicleAvail.available && (
-                  <p className="text-red-400 text-xs mt-2">
-                    This vehicle is not available at your selected time. Please choose a different time or vehicle.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         <div>
           <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
@@ -303,10 +307,53 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
           <textarea
             name="notes"
             rows={3}
-            defaultValue={ridePreference?.notes || ""}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
             placeholder="Any special requests or instructions..."
             className="w-full bg-cream/5 border border-cream/15 px-4 py-3.5 sm:py-3 text-cream text-base sm:text-sm placeholder:text-cream/30 focus:outline-none focus:border-gold/50 transition-colors resize-none rounded-none"
           />
+        </div>
+
+        <div className="border border-cream/10 p-4">
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isRecurring}
+              onChange={(e) => setIsRecurring(e.target.checked)}
+              className="accent-gold"
+            />
+            <span className="text-sm text-cream/70">Make this a recurring ride</span>
+          </label>
+
+          {isRecurring && (
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
+                  Frequency
+                </label>
+                <select
+                  value={recurrenceRule}
+                  onChange={(e) => setRecurrenceRule(e.target.value)}
+                  className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors appearance-none rounded-none"
+                >
+                  <option value="weekly" className="bg-navy-darkest">Weekly</option>
+                  <option value="biweekly" className="bg-navy-darkest">Every 2 weeks</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs uppercase tracking-[0.12em] text-cream/50 mb-2">
+                  Until
+                </label>
+                <input
+                  type="date"
+                  required={isRecurring}
+                  value={recurrenceEndDate}
+                  onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                  className="w-full bg-cream/5 border border-cream/15 px-4 py-3 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors rounded-none"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {status === "error" && (
@@ -315,23 +362,27 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
 
         <button
           type="submit"
-          disabled={status === "submitting" || (!!selectedVehicleAvail && !selectedVehicleAvail.available)}
-          className="w-full border border-gold/60 text-gold px-8 py-4.5 sm:py-4 text-base sm:text-sm uppercase tracking-[0.14em] hover:bg-gold/10 active:bg-gold/20 transition-colors disabled:opacity-50"
+          className="w-full border border-gold/60 text-gold px-8 py-4.5 sm:py-4 text-base sm:text-sm uppercase tracking-[0.14em] hover:bg-gold/10 active:bg-gold/20 transition-colors"
         >
-          {status === "submitting" ? "Submitting..." : "Request Ride"}
+          Review & Submit
         </button>
       </form>
     </div>
   );
 }
 
-/* ─── Availability Calendar ─── */
-interface CalendarDay {
-  date: string;
-  status: "open" | "partial" | "full";
+/* ─── Review Row ─── */
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between items-start px-4 py-3">
+      <span className="text-xs uppercase tracking-[0.12em] text-cream/50">{label}</span>
+      <span className="text-sm text-cream/80 text-right max-w-[60%]">{value}</span>
+    </div>
+  );
 }
 
-function AvailabilityCalendar({
+/* ─── Date Picker Calendar ─── */
+function DatePicker({
   selectedDate,
   onSelectDate,
 }: {
@@ -341,18 +392,8 @@ function AvailabilityCalendar({
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
-  const [days, setDays] = useState<CalendarDay[]>([]);
-  const [loading, setLoading] = useState(false);
 
   const monthKey = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}`;
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/bookings/calendar?month=${monthKey}`)
-      .then((r) => r.json())
-      .then((data) => { setDays(data.days || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [monthKey]);
 
   function prevMonth() {
     if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); }
@@ -407,14 +448,7 @@ function AvailabilityCalendar({
           const day = i + 1;
           const dateStr = `${monthKey}-${String(day).padStart(2, "0")}`;
           const isPast = dateStr <= todayStr;
-          const dayData = days.find((d) => d.date === dateStr);
-          const status = dayData?.status || "open";
           const isSelected = dateStr === selectedDate;
-
-          const dotColor =
-            status === "open" ? "bg-green-400" :
-            status === "partial" ? "bg-gold" :
-            "bg-red-400/70";
 
           return (
             <button
@@ -422,44 +456,19 @@ function AvailabilityCalendar({
               type="button"
               disabled={isPast}
               onClick={() => onSelectDate(dateStr)}
-              className={`relative flex flex-col items-center py-2 sm:py-2.5 transition-colors ${
+              className={`flex items-center justify-center py-2.5 sm:py-3 transition-colors ${
                 isPast
                   ? "text-cream/15 cursor-not-allowed"
                   : isSelected
                   ? "bg-gold/15 text-gold"
-                  : status === "full"
-                  ? "text-cream/30 hover:bg-cream/5"
                   : "text-cream/70 hover:bg-cream/5"
               }`}
             >
               <span className="text-sm">{day}</span>
-              {!isPast && !loading && (
-                <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${dotColor}`} />
-              )}
             </button>
           );
         })}
       </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 justify-center">
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-          <span className="text-[10px] text-cream/40">Available</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-gold" />
-          <span className="text-[10px] text-cream/40">Partial</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-400/70" />
-          <span className="text-[10px] text-cream/40">Fully Booked</span>
-        </div>
-      </div>
-
-      {loading && (
-        <p className="text-center text-xs text-cream/30 mt-2">Loading availability...</p>
-      )}
     </div>
   );
 }

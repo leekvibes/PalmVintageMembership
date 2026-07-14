@@ -27,6 +27,7 @@ interface AdminProps {
     vehicleAssigned: string | null;
     status: string;
     passengers: number;
+    isBirthday?: boolean;
   }[];
   inquiries: {
     id: string;
@@ -90,7 +91,7 @@ interface Inspection {
 
 export function AdminDashboard({ members, bookings, inquiries, vehicles, userRole }: AdminProps) {
   const isDriver = userRole === "driver";
-  const [activeTab, setActiveTab] = useState<"bookings" | "schedule" | "members" | "inquiries" | "ratings" | "events" | "create">("bookings");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "bookings" | "schedule" | "members" | "inquiries" | "ratings" | "events" | "create">("dashboard");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   const pendingBookings = bookings.filter((b) => b.status === "pending");
@@ -99,6 +100,7 @@ export function AdminDashboard({ members, bookings, inquiries, vehicles, userRol
   const tabs = isDriver
     ? [{ key: "bookings" as const, label: "My Bookings" }]
     : [
+        { key: "dashboard" as const, label: "Dashboard" },
         { key: "bookings" as const, label: `Bookings (${pendingBookings.length} pending)` },
         { key: "schedule" as const, label: "Schedule" },
         { key: "members" as const, label: `Members (${members.length})` },
@@ -146,6 +148,7 @@ export function AdminDashboard({ members, bookings, inquiries, vehicles, userRol
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 py-8">
+        {activeTab === "dashboard" && !isDriver && <DashboardStatsTab bookings={bookings} members={members} inquiries={inquiries} />}
         {activeTab === "bookings" && <BookingsTab bookings={bookings} vehicles={vehicles} isDriver={isDriver} />}
         {activeTab === "schedule" && !isDriver && <ScheduleTab bookings={bookings} vehicles={vehicles} />}
         {activeTab === "members" && !isDriver && (
@@ -417,7 +420,9 @@ function InspectionViewer({ inspections }: { inspections: Inspection[] }) {
 }
 
 /* ─── Schedule Tab (Vehicle Assignment Board + Calendar) ─── */
-function ScheduleTab({ bookings, vehicles }: { bookings: AdminProps["bookings"]; vehicles: AdminProps["vehicles"] }) {
+function ScheduleTab({ bookings: initialBookings, vehicles }: { bookings: AdminProps["bookings"]; vehicles: AdminProps["vehicles"] }) {
+  const [localBookings, setLocalBookings] = useState(initialBookings);
+  const bookings = localBookings;
   const [view, setView] = useState<"day" | "month">("day");
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
@@ -427,6 +432,7 @@ function ScheduleTab({ bookings, vehicles }: { bookings: AdminProps["bookings"];
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
   });
+  const [dragId, setDragId] = useState<string | null>(null);
 
   const statusColor: Record<string, string> = {
     pending: "bg-yellow-400/20 border-yellow-400/50 text-yellow-400",
@@ -461,6 +467,17 @@ function ScheduleTab({ bookings, vehicles }: { bookings: AdminProps["bookings"];
       if (m < 0) { m = 11; y--; }
       if (m > 11) { m = 0; y++; }
       return { year: y, month: m };
+    });
+  }
+
+  async function handleDrop(bookingId: string, newVehicleType: string) {
+    setLocalBookings((prev) =>
+      prev.map((b) => b.id === bookingId ? { ...b, vehicleAssigned: newVehicleType } : b)
+    );
+    await fetch(`/api/admin/bookings/${bookingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vehicleAssigned: newVehicleType }),
     });
   }
 
@@ -551,12 +568,25 @@ function ScheduleTab({ bookings, vehicles }: { bookings: AdminProps["bookings"];
                       return Math.floor(start) === hour;
                     });
                     return (
-                      <div key={v.id} className="p-1 border-r border-cream/5 last:border-r-0 min-h-[40px] relative">
+                      <div
+                        key={v.id}
+                        className={`p-1 border-r border-cream/5 last:border-r-0 min-h-[40px] relative transition-colors ${dragId ? "hover:bg-cream/5" : ""}`}
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const bid = e.dataTransfer.getData("text/plain");
+                          if (bid) handleDrop(bid, v.type);
+                          setDragId(null);
+                        }}
+                      >
                         {cellBookings.map((b) => (
                           isStart || Math.floor(timeToHour(b.pickupTime)) === hour ? (
                             <div
                               key={b.id}
-                              className={`text-[10px] px-1.5 py-1 border rounded-sm ${statusColor[b.status] || "bg-cream/10 border-cream/20 text-cream/50"}`}
+                              draggable
+                              onDragStart={(e) => { e.dataTransfer.setData("text/plain", b.id); setDragId(b.id); }}
+                              onDragEnd={() => setDragId(null)}
+                              className={`text-[10px] px-1.5 py-1 border rounded-sm cursor-grab active:cursor-grabbing ${statusColor[b.status] || "bg-cream/10 border-cream/20 text-cream/50"} ${dragId === b.id ? "opacity-50" : ""}`}
                             >
                               <span className="font-medium">{b.userName.split(" ")[0]}</span>
                               <span className="ml-1 opacity-70">{b.pickupTime}{b.returnTime ? `–${b.returnTime}` : ""}</span>
@@ -639,10 +669,101 @@ function ScheduleTab({ bookings, vehicles }: { bookings: AdminProps["bookings"];
   );
 }
 
+/* ─── Dashboard Stats Tab ─── */
+function DashboardStatsTab({ bookings, members, inquiries }: { bookings: AdminProps["bookings"]; members: AdminProps["members"]; inquiries: AdminProps["inquiries"] }) {
+  const pending = bookings.filter((b) => b.status === "pending").length;
+  const confirmed = bookings.filter((b) => b.status === "confirmed").length;
+  const completed = bookings.filter((b) => b.status === "completed").length;
+  const cancelled = bookings.filter((b) => b.status === "cancelled").length;
+  const totalMembers = members.length;
+  const activeMembers = members.filter((m) => m.membership?.status === "active").length;
+  const newInquiries = inquiries.filter((i) => i.status === "new").length;
+  const convertedInquiries = inquiries.filter((i) => i.status === "converted").length;
+
+  function exportCSV(type: "bookings" | "members") {
+    let csv = "";
+    if (type === "bookings") {
+      csv = "ID,Member,Email,Date,Pickup Time,Pickup Address,Vehicle Requested,Vehicle Assigned,Status,Passengers\n";
+      csv += bookings.map((b) =>
+        [b.id, b.userName, b.userEmail, b.date.split("T")[0], b.pickupTime, `"${b.pickupAddress}"`, b.vehicleRequest || "", b.vehicleAssigned || "", b.status, b.passengers].join(",")
+      ).join("\n");
+    } else {
+      csv = "ID,Name,Email,Phone,Program,Status,Trip Count,Joined\n";
+      csv += members.map((m) =>
+        [m.id, m.name, m.email, m.phone || "", m.membership?.program || "", m.membership?.status || "", m.tripCount, m.createdAt.split("T")[0]].join(",")
+      ).join("\n");
+    }
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `palm-vintage-${type}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-light mb-6">Dashboard</h2>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-1">Total Members</p>
+          <p className="text-2xl font-light">{totalMembers}</p>
+          <p className="text-xs text-green-400 mt-1">{activeMembers} active</p>
+        </div>
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-1">Pending Bookings</p>
+          <p className="text-2xl font-light text-yellow-400">{pending}</p>
+          <p className="text-xs text-cream/40 mt-1">{confirmed} confirmed</p>
+        </div>
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-1">Completed Rides</p>
+          <p className="text-2xl font-light">{completed}</p>
+          <p className="text-xs text-cream/40 mt-1">{cancelled} cancelled</p>
+        </div>
+        <div className="bg-cream/5 border border-cream/10 p-4">
+          <p className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-1">Inquiries</p>
+          <p className="text-2xl font-light">{inquiries.length}</p>
+          <p className="text-xs text-cream/40 mt-1">{newInquiries} new / {convertedInquiries} converted</p>
+        </div>
+      </div>
+
+      <div className="bg-cream/5 border border-cream/10 p-5">
+        <h3 className="text-sm uppercase tracking-[0.12em] text-gold/70 mb-4">Export Data</h3>
+        <div className="flex gap-3">
+          <button
+            onClick={() => exportCSV("bookings")}
+            className="border border-cream/20 text-cream/60 px-5 py-2.5 text-xs uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
+          >
+            Export Bookings CSV
+          </button>
+          <button
+            onClick={() => exportCSV("members")}
+            className="border border-cream/20 text-cream/60 px-5 py-2.5 text-xs uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors"
+          >
+            Export Members CSV
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Bookings Tab ─── */
 function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["bookings"]; vehicles: AdminProps["vehicles"]; isDriver: boolean }) {
   const [inspectionBookingId, setInspectionBookingId] = useState<string | null>(null);
   const [viewingInspections, setViewingInspections] = useState<{ bookingId: string; inspections: Inspection[] } | null>(null);
+
+  const conflictMap = new Map<string, string[]>();
+  const activeBookings = bookings.filter((b) => b.status !== "cancelled" && b.status !== "completed");
+  for (const b of activeBookings) {
+    const dateKey = b.date.split("T")[0];
+    const existing = conflictMap.get(dateKey) || [];
+    existing.push(b.id);
+    conflictMap.set(dateKey, existing);
+  }
 
   async function updateStatus(id: string, status: string, vehicleAssigned?: string) {
     await fetch(`/api/admin/bookings/${id}`, {
@@ -668,7 +789,14 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
         <div key={b.id} className="bg-cream/5 border border-cream/10 p-5">
           <div className="flex items-start justify-between gap-4 mb-3">
             <div>
-              <p className="font-medium">{b.userName}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-medium">{b.userName}</p>
+                {b.isBirthday && (
+                  <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-pink-400/15 text-pink-400 border border-pink-400/30">
+                    Birthday Priority
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-cream/40">{b.userEmail}</p>
             </div>
             <span
@@ -713,6 +841,13 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
             <span className="text-cream/40">|</span>
             <span className="text-cream/40">{b.passengers} pax</span>
           </div>
+
+          {/* Conflict warning */}
+          {b.status === "pending" && (conflictMap.get(b.date.split("T")[0])?.length ?? 0) > 1 && (
+            <div className="mt-3 border border-yellow-400/30 bg-yellow-400/5 px-3 py-2 text-xs text-yellow-400">
+              Conflict: {(conflictMap.get(b.date.split("T")[0])?.length ?? 0) - 1} other booking(s) on this date. Review times before confirming.
+            </div>
+          )}
 
           {/* Status workflow + condition actions */}
           <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-cream/10">
@@ -1641,6 +1776,8 @@ function AdminEventsTab() {
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ title: "", description: "", date: "", endDate: "", location: "", capacity: "" });
   const [form, setForm] = useState({ title: "", description: "", date: "", endDate: "", location: "", capacity: "" });
 
   useEffect(() => {
@@ -1684,6 +1821,44 @@ function AdminEventsTab() {
       }
     } catch {
       // silent
+    }
+  }
+
+  function startEditing(e: AdminEvent) {
+    setEditingId(e.id);
+    setEditForm({
+      title: e.title,
+      description: e.description || "",
+      date: e.date.slice(0, 16),
+      endDate: e.endDate?.slice(0, 16) || "",
+      location: e.location || "",
+      capacity: e.capacity ? String(e.capacity) : "",
+    });
+    setExpandedId(e.id);
+  }
+
+  async function handleUpdate() {
+    if (!editingId || !editForm.title || !editForm.date) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/events", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingId, ...editForm }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setEvents((prev) => prev.map((e) =>
+          e.id === editingId
+            ? { ...e, title: updated.title, description: updated.description, date: updated.date, endDate: updated.endDate, location: updated.location, capacity: updated.capacity }
+            : e
+        ));
+        setEditingId(null);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1773,6 +1948,12 @@ function AdminEventsTab() {
                     {expandedId === e.id ? "Hide" : "Details"}
                   </button>
                   <button
+                    onClick={() => startEditing(e)}
+                    className="text-[11px] border border-gold/30 text-gold/70 px-2.5 py-1 hover:bg-gold/10 transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
                     onClick={() => handleDelete(e.id)}
                     className="text-[11px] text-red-400/50 hover:text-red-400 transition-colors"
                   >
@@ -1782,7 +1963,48 @@ function AdminEventsTab() {
               </div>
               {expandedId === e.id && (
                 <div className="border-t border-cream/10 p-4">
-                  {e.description && <p className="text-sm text-cream/60 mb-3">{e.description}</p>}
+                  {editingId === e.id ? (
+                    <div className="space-y-3 mb-4">
+                      <div>
+                        <label className={labelClass}>Title *</label>
+                        <input type="text" value={editForm.title} onChange={(ev) => setEditForm({ ...editForm, title: ev.target.value })} className={inputClass} />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Description</label>
+                        <textarea value={editForm.description} onChange={(ev) => setEditForm({ ...editForm, description: ev.target.value })} rows={2} className={`${inputClass} resize-none`} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={labelClass}>Date & Time *</label>
+                          <input type="datetime-local" value={editForm.date} onChange={(ev) => setEditForm({ ...editForm, date: ev.target.value })} className={inputClass} />
+                        </div>
+                        <div>
+                          <label className={labelClass}>End Time</label>
+                          <input type="datetime-local" value={editForm.endDate} onChange={(ev) => setEditForm({ ...editForm, endDate: ev.target.value })} className={inputClass} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={labelClass}>Location</label>
+                          <input type="text" value={editForm.location} onChange={(ev) => setEditForm({ ...editForm, location: ev.target.value })} className={inputClass} />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Capacity</label>
+                          <input type="number" value={editForm.capacity} onChange={(ev) => setEditForm({ ...editForm, capacity: ev.target.value })} className={inputClass} />
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <button onClick={handleUpdate} disabled={saving} className="border border-gold/50 text-gold px-4 py-2 text-xs uppercase tracking-[0.12em] hover:bg-gold/10 transition-colors disabled:opacity-50">
+                          {saving ? "Saving..." : "Save Changes"}
+                        </button>
+                        <button onClick={() => setEditingId(null)} className="border border-cream/20 text-cream/50 px-4 py-2 text-xs uppercase tracking-[0.12em] hover:bg-cream/10 transition-colors">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    e.description && <p className="text-sm text-cream/60 mb-3">{e.description}</p>
+                  )}
                   <p className="text-xs uppercase tracking-[0.12em] text-cream/40 mb-2">RSVPs ({e.rsvps.length})</p>
                   {e.rsvps.length === 0 ? (
                     <p className="text-xs text-cream/30">No RSVPs yet.</p>

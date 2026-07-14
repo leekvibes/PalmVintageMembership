@@ -48,6 +48,7 @@ export function InquiryForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 text-left">
+      <input type="hidden" name="source" value="membership_page" />
       <div className="grid md:grid-cols-2 gap-6">
         <div>
           <label htmlFor="name" className={labelClass}>
