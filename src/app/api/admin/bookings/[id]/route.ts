@@ -36,7 +36,9 @@ export async function PATCH(
       userName: booking.user.name,
       date: booking.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
       pickupTime: booking.pickupTime,
+      returnTime: booking.returnTime,
       pickupAddress: booking.pickupAddress,
+      dropoffAddress: booking.dropoffAddress,
       vehicleAssigned: booking.vehicleAssigned,
     }).catch((err) => console.error("[email] Failed to send booking confirmed:", err));
   }

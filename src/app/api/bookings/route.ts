@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { sendBookingNotification } from "@/lib/email";
+import { sendBookingNotification, sendBookingReceived } from "@/lib/email";
 
 const BUFFER_HOURS = 1;
 
@@ -123,14 +123,20 @@ export async function POST(request: Request) {
       }
     }
 
-    await sendBookingNotification({
+    const emailData = {
       userName: session.user.name || "Member",
       date,
       pickupTime,
+      returnTime: returnTime || null,
       pickupAddress,
       dropoffAddress,
       vehicleRequest,
-    }).catch(console.error);
+    };
+
+    await Promise.all([
+      sendBookingNotification(emailData).catch(console.error),
+      sendBookingReceived(session.user.email!, emailData).catch(console.error),
+    ]);
 
     return NextResponse.json({ success: true, id: booking.id });
   } catch (error) {
