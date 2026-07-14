@@ -66,6 +66,7 @@ export default async function AdminPage() {
           vehicleAssigned: b.vehicleAssigned,
           status: b.status,
           passengers: b.passengers,
+          notes: b.notes,
           isBirthday,
         };
       })}

@@ -131,6 +131,8 @@ export async function POST(request: Request) {
       pickupAddress,
       dropoffAddress,
       vehicleRequest,
+      passengers: Number(passengers) || 1,
+      notes: notes || null,
     };
 
     await Promise.all([

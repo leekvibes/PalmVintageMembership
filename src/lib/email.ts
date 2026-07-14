@@ -232,6 +232,8 @@ export async function sendBookingNotification(booking: {
   pickupAddress: string;
   dropoffAddress: string | null;
   vehicleRequest: string | null;
+  passengers?: number;
+  notes?: string | null;
 }) {
   if (!process.env.SMTP_USER) {
     console.log("[email] SMTP not configured, skipping booking notification.");
@@ -245,7 +247,9 @@ export async function sendBookingNotification(booking: {
       + (booking.returnTime ? detailRow("Drop-off Time", formatTime(booking.returnTime)) : "")
       + detailRow("Pickup Address", booking.pickupAddress)
       + detailRow("Drop-off Address", booking.dropoffAddress || "Same as pickup")
-      + detailRow("Vehicle Preference", vehicleLabel(booking.vehicleRequest), true, true)
+      + detailRow("Vehicle Preference", vehicleLabel(booking.vehicleRequest))
+      + (booking.passengers ? detailRow("Passengers", String(booking.passengers)) : "")
+      + detailRow("Notes", booking.notes || "None", true)
     );
 
   await transporter.sendMail({

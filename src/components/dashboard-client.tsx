@@ -4,6 +4,13 @@ import { useState, useEffect } from "react";
 import { signOut } from "next-auth/react";
 import { BookingForm } from "./booking-form";
 
+function formatTime(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
 interface DashboardProps {
   user: {
     id: string;
@@ -236,7 +243,7 @@ export function DashboardClient({
                 <p className="text-sm text-gold">
                   Rescheduling ride from{" "}
                   {new Date(rescheduleBooking.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  {" "}at {rescheduleBooking.pickupTime}. Choose a new date and time below.
+                  {" "}at {formatTime(rescheduleBooking.pickupTime)}. Choose a new date and time below.
                 </p>
                 <button onClick={() => setRescheduleBooking(null)} className="text-xs text-cream/40 hover:text-cream/70 ml-4">
                   &times;
@@ -728,8 +735,8 @@ function TripsTab({ bookings, onReschedule }: { bookings: DashboardProps["bookin
                       month: "short",
                       day: "numeric",
                     })}{" "}
-                    at {b.pickupTime}
-                    {b.returnTime && ` – ${b.returnTime}`}
+                    at {formatTime(b.pickupTime)}
+                    {b.returnTime && ` – ${formatTime(b.returnTime)}`}
                   </p>
                   <p className="text-xs text-cream/40 truncate">
                     {b.pickupAddress}
@@ -1017,7 +1024,7 @@ function BookingCard({
             month: "short",
             day: "numeric",
           })}{" "}
-          at {booking.pickupTime}
+          at {formatTime(booking.pickupTime)}
         </p>
         <p className="text-xs text-cream/40 truncate">
           {booking.pickupAddress}

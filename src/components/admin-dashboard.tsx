@@ -27,6 +27,7 @@ interface AdminProps {
     vehicleAssigned: string | null;
     status: string;
     passengers: number;
+    notes: string | null;
     isBirthday?: boolean;
   }[];
   inquiries: {
@@ -87,6 +88,13 @@ interface Inspection {
   createdAt: string;
   vehicle: { name: string; type: string };
   photos: { id: string; photoData: string; caption: string | null; createdAt: string }[];
+}
+
+function formatTime(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
 export function AdminDashboard({ members, bookings, inquiries, vehicles, userRole }: AdminProps) {
@@ -589,7 +597,7 @@ function ScheduleTab({ bookings: initialBookings, vehicles }: { bookings: AdminP
                               className={`text-[10px] px-1.5 py-1 border rounded-sm cursor-grab active:cursor-grabbing ${statusColor[b.status] || "bg-cream/10 border-cream/20 text-cream/50"} ${dragId === b.id ? "opacity-50" : ""}`}
                             >
                               <span className="font-medium">{b.userName.split(" ")[0]}</span>
-                              <span className="ml-1 opacity-70">{b.pickupTime}{b.returnTime ? `–${b.returnTime}` : ""}</span>
+                              <span className="ml-1 opacity-70">{formatTime(b.pickupTime)}{b.returnTime ? `–${formatTime(b.returnTime)}` : ""}</span>
                             </div>
                           ) : null
                         ))}
@@ -645,7 +653,7 @@ function ScheduleTab({ bookings: initialBookings, vehicles }: { bookings: AdminP
                         const color = vehicle === "rolls_royce" ? "bg-gold/30" : "bg-blue-400/30";
                         return (
                           <div key={b.id} className={`${color} rounded-sm px-1 py-0.5 text-[9px] text-cream/70 truncate`}>
-                            {b.pickupTime} {b.userName.split(" ")[0]}
+                            {formatTime(b.pickupTime)} {b.userName.split(" ")[0]}
                           </div>
                         );
                       })}
@@ -822,7 +830,7 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
             </div>
             <div>
               <span className="text-cream/40 text-xs block">Time</span>
-              {b.pickupTime}{b.returnTime ? ` – ${b.returnTime}` : ""}
+              {formatTime(b.pickupTime)}{b.returnTime ? ` – ${formatTime(b.returnTime)}` : ""}
             </div>
             <div>
               <span className="text-cream/40 text-xs block">Pickup</span>
@@ -841,6 +849,12 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
             <span className="text-cream/40">|</span>
             <span className="text-cream/40">{b.passengers} pax</span>
           </div>
+          {b.notes && (
+            <div className="mt-3 border border-cream/10 bg-cream/5 px-3 py-2 text-sm text-cream/60">
+              <span className="text-cream/40 text-xs uppercase tracking-[0.12em]">Notes: </span>
+              {b.notes}
+            </div>
+          )}
 
           {/* Conflict warning */}
           {b.status === "pending" && (conflictMap.get(b.date.split("T")[0])?.length ?? 0) > 1 && (
@@ -1335,7 +1349,7 @@ function MemberProfile({ memberId, vehicles, onBack }: { memberId: string; vehic
                       <div key={b.id} className="border-b border-cream/5 pb-3 last:border-0">
                         <div className="flex items-center justify-between text-sm">
                           <div>
-                            <p>{new Date(b.date).toLocaleDateString()} at {b.pickupTime}</p>
+                            <p>{new Date(b.date).toLocaleDateString()} at {formatTime(b.pickupTime)}</p>
                             <p className="text-xs text-cream/40">{b.pickupAddress}</p>
                           </div>
                           <span className={`text-xs uppercase tracking-wider ${

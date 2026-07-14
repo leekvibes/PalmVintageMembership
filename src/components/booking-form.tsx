@@ -14,6 +14,13 @@ interface BookingFormProps {
   ridePreference?: { vehicleRequest: string | null; passengers: number; notes: string | null } | null;
 }
 
+function formatTime(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
 export function BookingForm({ businessHours, prefill, savedAddresses: initialAddresses, ridePreference }: BookingFormProps) {
   const [status, setStatus] = useState<"idle" | "review" | "submitting" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -142,8 +149,8 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
 
         <div className="border border-cream/15 divide-y divide-cream/10">
           <ReviewRow label="Date" value={new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} />
-          <ReviewRow label="Pickup Time" value={pickupTime} />
-          {returnTime && <ReviewRow label="Return Time" value={returnTime} />}
+          <ReviewRow label="Pickup Time" value={formatTime(pickupTime)} />
+          {returnTime && <ReviewRow label="Return Time" value={formatTime(returnTime)} />}
           <ReviewRow label="Pickup Address" value={pickupAddress} />
           {dropoffAddress && <ReviewRow label="Drop-off Address" value={dropoffAddress} />}
           <ReviewRow label="Vehicle Preference" value={vehicleLabel} />
