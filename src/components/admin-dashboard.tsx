@@ -441,6 +441,7 @@ function ScheduleTab({ bookings: initialBookings, vehicles }: { bookings: AdminP
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [dragId, setDragId] = useState<string | null>(null);
+  const [dropError, setDropError] = useState<string | null>(null);
 
   const statusColor: Record<string, string> = {
     pending: "bg-yellow-400/20 border-yellow-400/50 text-yellow-400",
@@ -479,14 +480,24 @@ function ScheduleTab({ bookings: initialBookings, vehicles }: { bookings: AdminP
   }
 
   async function handleDrop(bookingId: string, newVehicleType: string) {
-    setLocalBookings((prev) =>
-      prev.map((b) => b.id === bookingId ? { ...b, vehicleAssigned: newVehicleType } : b)
+    setDropError(null);
+    const prev = localBookings;
+    setLocalBookings((p) =>
+      p.map((b) => b.id === bookingId ? { ...b, vehicleAssigned: newVehicleType } : b)
     );
-    await fetch(`/api/admin/bookings/${bookingId}`, {
+    const res = await fetch(`/api/admin/bookings/${bookingId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vehicleAssigned: newVehicleType }),
     });
+    if (!res.ok) {
+      const err = await res.json();
+      if (err.conflict) {
+        setLocalBookings(prev);
+        setDropError(err.error);
+        setTimeout(() => setDropError(null), 6000);
+      }
+    }
   }
 
   const calDays = (() => {
@@ -544,6 +555,12 @@ function ScheduleTab({ bookings: initialBookings, vehicles }: { bookings: AdminP
               Today
             </button>
           </div>
+
+          {dropError && (
+            <div className="mb-4 border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm text-red-400">
+              {dropError}
+            </div>
+          )}
 
           <div className="border border-cream/10 overflow-x-auto">
             <div className="min-w-[600px]">
@@ -763,22 +780,47 @@ function DashboardStatsTab({ bookings, members, inquiries }: { bookings: AdminPr
 function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["bookings"]; vehicles: AdminProps["vehicles"]; isDriver: boolean }) {
   const [inspectionBookingId, setInspectionBookingId] = useState<string | null>(null);
   const [viewingInspections, setViewingInspections] = useState<{ bookingId: string; inspections: Inspection[] } | null>(null);
+  const [availability, setAvailability] = useState<Record<string, Record<string, { available: boolean; reason?: string }>>>({});
+  const [loadingAvailability, setLoadingAvailability] = useState<Set<string>>(new Set());
+  const [actionError, setActionError] = useState<{ id: string; msg: string } | null>(null);
 
-  const conflictMap = new Map<string, string[]>();
-  const activeBookings = bookings.filter((b) => b.status !== "cancelled" && b.status !== "completed");
-  for (const b of activeBookings) {
-    const dateKey = b.date.split("T")[0];
-    const existing = conflictMap.get(dateKey) || [];
-    existing.push(b.id);
-    conflictMap.set(dateKey, existing);
+  async function checkAvailability(bookingId: string) {
+    setLoadingAvailability((prev) => new Set(prev).add(bookingId));
+    try {
+      const res = await fetch("/api/admin/bookings/check-conflict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailability((prev) => ({ ...prev, [bookingId]: data.vehicleAvailability }));
+      }
+    } finally {
+      setLoadingAvailability((prev) => { const s = new Set(prev); s.delete(bookingId); return s; });
+    }
   }
 
+  useEffect(() => {
+    const pendingIds = bookings.filter((b) => b.status === "pending").map((b) => b.id);
+    pendingIds.forEach((id) => checkAvailability(id));
+  }, []);
+
   async function updateStatus(id: string, status: string, vehicleAssigned?: string) {
-    await fetch(`/api/admin/bookings/${id}`, {
+    setActionError(null);
+    const res = await fetch(`/api/admin/bookings/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, vehicleAssigned }),
     });
+    if (!res.ok) {
+      const err = await res.json();
+      if (err.conflict) {
+        setActionError({ id, msg: err.error });
+        checkAvailability(id);
+        return;
+      }
+    }
     window.location.reload();
   }
 
@@ -793,7 +835,11 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-light mb-4">{isDriver ? "Assigned Bookings" : "All Bookings"}</h2>
-      {bookings.map((b) => (
+      {bookings.map((b) => {
+        const avail = availability[b.id];
+        const rrAvail = avail?.rolls_royce;
+        const escAvail = avail?.escalade;
+        return (
         <div key={b.id} className="bg-cream/5 border border-cream/10 p-5">
           <div className="flex items-start justify-between gap-4 mb-3">
             <div>
@@ -856,10 +902,32 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
             </div>
           )}
 
-          {/* Conflict warning */}
-          {b.status === "pending" && (conflictMap.get(b.date.split("T")[0])?.length ?? 0) > 1 && (
-            <div className="mt-3 border border-yellow-400/30 bg-yellow-400/5 px-3 py-2 text-xs text-yellow-400">
-              Conflict: {(conflictMap.get(b.date.split("T")[0])?.length ?? 0) - 1} other booking(s) on this date. Review times before confirming.
+          {/* Vehicle availability indicators */}
+          {b.status === "pending" && avail && (
+            <div className="mt-3 flex gap-3">
+              {[
+                { key: "rolls_royce", label: "Rolls-Royce", info: rrAvail },
+                { key: "escalade", label: "Escalade", info: escAvail },
+              ].map(({ key, label, info }) => (
+                <div
+                  key={key}
+                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 border ${
+                    info?.available
+                      ? "border-green-400/30 bg-green-400/5 text-green-400"
+                      : "border-red-400/30 bg-red-400/5 text-red-400"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${info?.available ? "bg-green-400" : "bg-red-400"}`} />
+                  {label}: {info?.available ? "Available" : info?.reason || "Unavailable"}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Conflict error from server */}
+          {actionError?.id === b.id && (
+            <div className="mt-3 border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs text-red-400">
+              {actionError.msg}
             </div>
           )}
 
@@ -870,13 +938,23 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
               <>
                 <button
                   onClick={() => updateStatus(b.id, "confirmed", b.vehicleRequest || "rolls_royce")}
-                  className="text-xs border border-green-400/50 text-green-400 px-3 py-1.5 hover:bg-green-400/10 transition-colors"
+                  disabled={rrAvail !== undefined && !rrAvail?.available}
+                  className={`text-xs border px-3 py-1.5 transition-colors ${
+                    rrAvail !== undefined && !rrAvail?.available
+                      ? "border-cream/10 text-cream/20 cursor-not-allowed"
+                      : "border-green-400/50 text-green-400 hover:bg-green-400/10"
+                  }`}
                 >
                   Confirm (Rolls-Royce)
                 </button>
                 <button
                   onClick={() => updateStatus(b.id, "confirmed", "escalade")}
-                  className="text-xs border border-green-400/50 text-green-400 px-3 py-1.5 hover:bg-green-400/10 transition-colors"
+                  disabled={escAvail !== undefined && !escAvail?.available}
+                  className={`text-xs border px-3 py-1.5 transition-colors ${
+                    escAvail !== undefined && !escAvail?.available
+                      ? "border-cream/10 text-cream/20 cursor-not-allowed"
+                      : "border-green-400/50 text-green-400 hover:bg-green-400/10"
+                  }`}
                 >
                   Confirm (Escalade)
                 </button>
@@ -886,6 +964,9 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
                 >
                   Cancel
                 </button>
+                {loadingAvailability.has(b.id) && (
+                  <span className="text-xs text-cream/30 self-center">Checking availability...</span>
+                )}
               </>
             )}
 
@@ -949,7 +1030,8 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
 
       {/* Inspection upload modal */}
       {inspectionBookingId && (

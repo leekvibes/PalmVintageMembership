@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendBookingConfirmed, sendRideStarting, sendRatingRequest } from "@/lib/email";
+import { checkVehicleConflict, BUFFER_MINUTES } from "@/lib/scheduling";
 
 export async function PATCH(
   request: Request,
@@ -20,6 +21,40 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
   const { status, vehicleAssigned } = body;
+
+  const existing = await prisma.booking.findUnique({ where: { id } });
+  if (!existing) {
+    return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+  }
+
+  const vehicleToCheck = vehicleAssigned || existing.vehicleAssigned;
+
+  if (
+    vehicleToCheck &&
+    (status === "confirmed" || (!status && vehicleAssigned))
+  ) {
+    const result = await checkVehicleConflict(
+      existing.date,
+      existing.pickupTime,
+      existing.returnTime,
+      vehicleToCheck,
+      id
+    );
+
+    if (result.hasConflict) {
+      const c = result.conflictingBooking!;
+      const vehicleName = vehicleToCheck === "rolls_royce" ? "Rolls-Royce" : "Escalade";
+      return NextResponse.json(
+        {
+          error: `Cannot assign ${vehicleName} — conflicts with ${c.userName}'s ride (${c.pickupTime}${c.returnTime ? `–${c.returnTime}` : ""} + ${BUFFER_MINUTES}min buffer). ${result.availableVehicles.length > 0 ? `Available: ${result.availableVehicles.map(v => v === "rolls_royce" ? "Rolls-Royce" : "Escalade").join(", ")}` : "No vehicles available for this time."}`,
+          conflict: true,
+          availableVehicles: result.availableVehicles,
+          vehicleAvailability: result.vehicleAvailability,
+        },
+        { status: 409 }
+      );
+    }
+  }
 
   const data: Record<string, string> = {};
   if (status) data.status = status;

@@ -260,6 +260,73 @@ export async function sendBookingNotification(booking: {
   });
 }
 
+export async function sendDailyBriefing(
+  to: string,
+  data: {
+    date: string;
+    bookings: {
+      userName: string;
+      pickupTime: string;
+      returnTime: string | null;
+      pickupAddress: string;
+      dropoffAddress: string | null;
+      vehicleAssigned: string | null;
+      status: string;
+      passengers: number;
+      notes: string | null;
+    }[];
+  }
+) {
+  if (!process.env.SMTP_USER) {
+    console.log("[email] SMTP not configured. Daily briefing skipped.");
+    return;
+  }
+
+  const count = data.bookings.length;
+  const subject = count === 0
+    ? `Daily Briefing: No rides on ${data.date}`
+    : `Daily Briefing: ${count} ride${count > 1 ? "s" : ""} on ${data.date}`;
+
+  let body: string;
+  if (count === 0) {
+    body = P(`No rides scheduled for today, ${data.date}.`) + P("Enjoy the downtime.");
+  } else {
+    const rows = data.bookings
+      .sort((a, b) => a.pickupTime.localeCompare(b.pickupTime))
+      .map((b, i) => {
+        const time = `${formatTime(b.pickupTime)}${b.returnTime ? ` – ${formatTime(b.returnTime)}` : ""}`;
+        const vehicle = vehicleLabel(b.vehicleAssigned);
+        const statusBadge = b.status === "confirmed" ? "CONFIRMED" : b.status === "pending" ? "PENDING" : b.status.toUpperCase().replace("_", " ");
+        const noteRow = b.notes
+          ? `<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#f5f0e8;opacity:0.5;margin:6px 0 0;font-style:italic">&ldquo;${b.notes}&rdquo;</p>`
+          : "";
+        const isLast = i === data.bookings.length - 1;
+        const borderStyle = isLast ? "" : "border-bottom:1px solid rgba(245,240,232,0.06);";
+
+        return `<tr><td style="padding:16px 20px;${borderStyle}">
+<div style="display:flex;justify-content:space-between;align-items:baseline">
+<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;color:#f5f0e8;opacity:0.9;margin:0"><strong>${b.userName}</strong></p>
+<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#d4a017;margin:0">${statusBadge}</p>
+</div>
+<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#f5f0e8;opacity:0.6;margin:6px 0 0">${time} &middot; ${vehicle} &middot; ${b.passengers} pax</p>
+<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#f5f0e8;opacity:0.5;margin:4px 0 0">Pickup: ${b.pickupAddress}${b.dropoffAddress ? ` → ${b.dropoffAddress}` : ""}</p>
+${noteRow}
+</td></tr>`;
+      })
+      .join("");
+
+    body = P(`You have <strong style="color:#d4a017">${count} ride${count > 1 ? "s" : ""}</strong> scheduled for ${data.date}.`)
+      + detailCard(rows);
+  }
+
+  await transporter.sendMail({
+    from: `"${BUSINESS.name}" <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    html: emailTemplate(subject, body, "Open Dashboard", process.env.NEXTAUTH_URL ? `${process.env.NEXTAUTH_URL}/admin` : undefined),
+  });
+}
+
 export async function sendPasswordReset(to: string, userName: string, resetUrl: string) {
   if (!process.env.SMTP_USER) {
     console.log("[email] SMTP not configured. Reset URL:", resetUrl);
