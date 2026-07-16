@@ -27,6 +27,7 @@ model User {
   eventRsvps        EventRsvp[]
   passwordResets    PasswordReset[]
   paymentMethods    PaymentMethod[]
+  waitlistEntries   WaitlistEntry[]
 }
 
 model Membership {
@@ -75,6 +76,7 @@ model Booking {
   recurrenceRule  String?
   recurrenceEndDate DateTime?
   parentBookingId String?
+  adminReminderSentAt DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -214,4 +216,24 @@ model PaymentMethod {
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model WaitlistEntry {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date           DateTime
+  pickupTime     String
+  returnTime     String?
+  vehicleRequest String?
+  pickupAddress  String?
+  dropoffAddress String?
+  passengers     Int       @default(1)
+  notes          String?
+  status         String    @default("waiting") // waiting, notified, converted, cancelled, expired
+  notifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([date, status])
 }

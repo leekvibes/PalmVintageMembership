@@ -36,6 +36,7 @@ export async function GET(
   }
 
   const dateStr = booking.date.toLocaleDateString("en-US", {
+    timeZone: "UTC",
     weekday: "long",
     month: "long",
     day: "numeric",

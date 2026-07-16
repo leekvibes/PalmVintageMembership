@@ -211,6 +211,9 @@ export function DashboardClient({
               )}
             </div>
 
+            {/* Waitlist */}
+            <WaitlistSection />
+
             {/* Guests */}
             {membership && membership.guests.length > 0 && (
               <div>
@@ -242,7 +245,7 @@ export function DashboardClient({
               <div className="bg-gold/10 border border-gold/30 p-4 mb-6 flex items-center justify-between">
                 <p className="text-sm text-gold">
                   Rescheduling ride from{" "}
-                  {new Date(rescheduleBooking.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  {new Date(rescheduleBooking.date).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })}
                   {" "}at {formatTime(rescheduleBooking.pickupTime)}. Choose a new date and time below.
                 </p>
                 <button onClick={() => setRescheduleBooking(null)} className="text-xs text-cream/40 hover:text-cream/70 ml-4">
@@ -731,6 +734,7 @@ function TripsTab({ bookings, onReschedule }: { bookings: DashboardProps["bookin
                 <div className="flex-1 min-w-0">
                   <p className="text-sm">
                     {new Date(b.date).toLocaleDateString("en-US", {
+                      timeZone: "UTC",
                       weekday: "short",
                       month: "short",
                       day: "numeric",
@@ -1020,6 +1024,7 @@ function BookingCard({
       <div className="flex-1 min-w-0">
         <p className="text-sm">
           {new Date(booking.date).toLocaleDateString("en-US", {
+            timeZone: "UTC",
             weekday: "short",
             month: "short",
             day: "numeric",
@@ -1040,6 +1045,84 @@ function BookingCard({
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─── Waitlist Section (Member) ─── */
+interface WaitlistItem {
+  id: string;
+  date: string;
+  pickupTime: string;
+  returnTime: string | null;
+  vehicleRequest: string | null;
+  status: string;
+}
+
+function vehicleLabel(v: string | null): string {
+  if (v === "rolls_royce") return "Rolls-Royce";
+  if (v === "escalade") return "Cadillac Escalade";
+  return "No preference";
+}
+
+function WaitlistSection() {
+  const [entries, setEntries] = useState<WaitlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/waitlist")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { setEntries(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function remove(id: string) {
+    setRemoving(id);
+    try {
+      const res = await fetch(`/api/waitlist/${id}`, { method: "DELETE" });
+      if (res.ok) setEntries((prev) => prev.filter((e) => e.id !== id));
+    } finally {
+      setRemoving(null);
+    }
+  }
+
+  if (loading || entries.length === 0) return null;
+
+  return (
+    <div>
+      <h2 className="text-lg font-light mb-4">Your Waitlist</h2>
+      <div className="space-y-3">
+        {entries.map((e) => (
+          <div key={e.id} className="bg-cream/5 border border-cream/10 p-4 flex items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm">
+                  {new Date(e.date).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" })}
+                  {" · "}
+                  {formatTime(e.pickupTime)}{e.returnTime ? ` – ${formatTime(e.returnTime)}` : ""}
+                </p>
+                {e.status === "notified" && (
+                  <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-gold/15 text-gold border border-gold/30">
+                    Spot may be open
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-cream/40 mt-0.5">{vehicleLabel(e.vehicleRequest)}</p>
+            </div>
+            <button
+              onClick={() => remove(e.id)}
+              disabled={removing === e.id}
+              className="text-xs text-cream/40 hover:text-red-400 transition-colors disabled:opacity-50 shrink-0"
+            >
+              {removing === e.id ? "Removing..." : "Remove"}
+            </button>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-cream/35 mt-3">
+        We&rsquo;ll email you if one of these times opens up. Availability is first-come.
+      </p>
     </div>
   );
 }
@@ -1155,8 +1238,10 @@ function EventsTab() {
 function MonthlyUsageSummary({ bookings }: { bookings: DashboardProps["bookings"] }) {
   const now = new Date();
   const thisMonth = bookings.filter((b) => {
+    // Booking dates are stored as UTC calendar days — compare in UTC so a ride
+    // intended for the 1st isn't bucketed into the previous month in local time.
     const d = new Date(b.date);
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && b.status !== "cancelled";
+    return d.getUTCMonth() === now.getUTCMonth() && d.getUTCFullYear() === now.getUTCFullYear() && b.status !== "cancelled";
   });
 
   const completed = thisMonth.filter((b) => b.status === "completed");

@@ -36,6 +36,7 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
   const [savedAddresses, setSavedAddresses] = useState(initialAddresses || []);
   const [pickupAddress, setPickupAddress] = useState(prefill?.pickupAddress || "");
   const [dropoffAddress, setDropoffAddress] = useState(prefill?.dropoffAddress || "");
+  const [waitlist, setWaitlist] = useState<"none" | "offer" | "joining" | "joined">("none");
 
   async function handleSaveAddress(address: string, label: string) {
     try {
@@ -65,6 +66,7 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
   async function handleConfirmSubmit() {
     setStatus("submitting");
     setErrorMsg("");
+    setWaitlist("none");
 
     const data = {
       date,
@@ -89,6 +91,13 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
 
       if (!res.ok) {
         const err = await res.json();
+        // Vehicle taken → stay on review and offer the waitlist inline.
+        if (res.status === 409 && err.conflict) {
+          setErrorMsg(err.error || "That vehicle isn't available at your requested time.");
+          setWaitlist("offer");
+          setStatus("review");
+          return;
+        }
         throw new Error(err.error || "Failed to book");
       }
 
@@ -97,6 +106,48 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       setStatus("error");
     }
+  }
+
+  async function handleJoinWaitlist() {
+    setWaitlist("joining");
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date,
+          pickupTime,
+          returnTime: returnTime || undefined,
+          vehicleRequest: vehicleRequest || undefined,
+          pickupAddress,
+          dropoffAddress,
+          passengers,
+          notes: notes || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setWaitlist("joined");
+    } catch {
+      setWaitlist("offer");
+      setErrorMsg("Couldn't join the waitlist just now. Please try again, or email Palm directly.");
+    }
+  }
+
+  function resetForm() {
+    setStatus("idle");
+    setErrorMsg("");
+    setWaitlist("none");
+    setDate("");
+    setPickupTime("");
+    setReturnTime("");
+    setVehicleRequest("");
+    setPassengers(1);
+    setNotes("");
+    setIsRecurring(false);
+    setRecurrenceRule("weekly");
+    setRecurrenceEndDate("");
+    setPickupAddress("");
+    setDropoffAddress("");
   }
 
   if (status === "success") {
@@ -115,20 +166,7 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
           different time or you can email Palm directly for alternatives.
         </p>
         <button
-          onClick={() => {
-            setStatus("idle");
-            setDate("");
-            setPickupTime("");
-            setReturnTime("");
-            setVehicleRequest("");
-            setPassengers(1);
-            setNotes("");
-            setIsRecurring(false);
-            setRecurrenceRule("weekly");
-            setRecurrenceEndDate("");
-            setPickupAddress("");
-            setDropoffAddress("");
-          }}
+          onClick={resetForm}
           className="text-gold text-sm hover:text-gold-bright transition-colors"
         >
           Book another ride
@@ -161,29 +199,81 @@ export function BookingForm({ businessHours, prefill, savedAddresses: initialAdd
           )}
         </div>
 
-        <div className="bg-cream/5 border border-cream/15 p-4 mt-4 text-sm text-cream/60">
-          After submitting, our team will confirm your ride within 6 hours.
-          You will be notified via the portal and email once confirmed.
-        </div>
+        {waitlist === "none" && (
+          <div className="bg-cream/5 border border-cream/15 p-4 mt-4 text-sm text-cream/60">
+            After submitting, our team will confirm your ride within 6 hours.
+            You will be notified via the portal and email once confirmed.
+          </div>
+        )}
 
-        {errorMsg && <p className="text-red-400 text-sm mt-3">{errorMsg}</p>}
+        {/* Waitlist joined confirmation */}
+        {waitlist === "joined" && (
+          <div className="border border-gold/40 bg-gold/5 p-5 mt-4">
+            <div className="flex items-center gap-2.5 mb-2">
+              <span className="w-2 h-2 rounded-full bg-gold" />
+              <p className="text-sm text-gold uppercase tracking-[0.14em]">You&rsquo;re on the waitlist</p>
+            </div>
+            <p className="text-sm text-cream/60">
+              We&rsquo;ll email you the moment this time opens up. Availability is
+              first-come, so keep an eye on your inbox. You can also try a
+              different time in the meantime.
+            </p>
+            <button
+              onClick={resetForm}
+              className="text-gold text-sm hover:text-gold-bright transition-colors mt-4"
+            >
+              Try a different time
+            </button>
+          </div>
+        )}
 
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={handleConfirmSubmit}
-            disabled={status === "submitting"}
-            className="flex-1 border border-gold/60 text-gold px-8 py-4 text-sm uppercase tracking-[0.14em] hover:bg-gold/10 active:bg-gold/20 transition-colors disabled:opacity-50"
-          >
-            {status === "submitting" ? "Submitting..." : "Confirm & Submit"}
-          </button>
-          <button
-            onClick={() => { setStatus("idle"); setErrorMsg(""); }}
-            disabled={status === "submitting"}
-            className="border border-cream/20 text-cream/50 px-6 py-4 text-sm uppercase tracking-[0.14em] hover:bg-cream/10 transition-colors disabled:opacity-50"
-          >
-            Edit
-          </button>
-        </div>
+        {/* Conflict → inline waitlist offer */}
+        {(waitlist === "offer" || waitlist === "joining") && (
+          <div className="border border-cream/20 bg-cream/5 p-5 mt-4">
+            <p className="text-sm text-cream/80 mb-1.5">{errorMsg}</p>
+            <p className="text-xs text-cream/45 mb-4">
+              Join the waitlist and we&rsquo;ll notify you if this slot opens up —
+              or edit your request to pick a different time or vehicle.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={handleJoinWaitlist}
+                disabled={waitlist === "joining"}
+                className="flex-1 border border-gold/60 text-gold px-6 py-3.5 text-sm uppercase tracking-[0.14em] hover:bg-gold/10 active:bg-gold/20 transition-colors disabled:opacity-50"
+              >
+                {waitlist === "joining" ? "Joining..." : "Join Waitlist"}
+              </button>
+              <button
+                onClick={() => { setStatus("idle"); setErrorMsg(""); setWaitlist("none"); }}
+                disabled={waitlist === "joining"}
+                className="border border-cream/20 text-cream/60 px-6 py-3.5 text-sm uppercase tracking-[0.14em] hover:bg-cream/10 transition-colors disabled:opacity-50"
+              >
+                Pick Another Time
+              </button>
+            </div>
+          </div>
+        )}
+
+        {waitlist === "none" && errorMsg && <p className="text-red-400 text-sm mt-3">{errorMsg}</p>}
+
+        {waitlist === "none" && (
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={handleConfirmSubmit}
+              disabled={status === "submitting"}
+              className="flex-1 border border-gold/60 text-gold px-8 py-4 text-sm uppercase tracking-[0.14em] hover:bg-gold/10 active:bg-gold/20 transition-colors disabled:opacity-50"
+            >
+              {status === "submitting" ? "Submitting..." : "Confirm & Submit"}
+            </button>
+            <button
+              onClick={() => { setStatus("idle"); setErrorMsg(""); }}
+              disabled={status === "submitting"}
+              className="border border-cream/20 text-cream/50 px-6 py-4 text-sm uppercase tracking-[0.14em] hover:bg-cream/10 transition-colors disabled:opacity-50"
+            >
+              Edit
+            </button>
+          </div>
+        )}
       </div>
     );
   }

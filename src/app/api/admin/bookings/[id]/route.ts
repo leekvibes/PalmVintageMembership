@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendBookingConfirmed, sendRideStarting, sendRatingRequest } from "@/lib/email";
 import { checkVehicleConflict, BUFFER_MINUTES } from "@/lib/scheduling";
+import { notifyWaitlistForFreedSlot } from "@/lib/waitlist";
 
 export async function PATCH(
   request: Request,
@@ -69,7 +70,7 @@ export async function PATCH(
   if (status === "confirmed") {
     sendBookingConfirmed(booking.user.email, {
       userName: booking.user.name,
-      date: booking.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+      date: booking.date.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }),
       pickupTime: booking.pickupTime,
       returnTime: booking.returnTime,
       pickupAddress: booking.pickupAddress,
@@ -81,7 +82,7 @@ export async function PATCH(
   if (status === "in_progress") {
     sendRideStarting(booking.user.email, {
       userName: booking.user.name,
-      date: booking.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+      date: booking.date.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }),
       pickupTime: booking.pickupTime,
       vehicleAssigned: booking.vehicleAssigned,
     }).catch((err) => console.error("[email] Failed to send ride starting:", err));
@@ -91,8 +92,21 @@ export async function PATCH(
     sendRatingRequest(booking.user.email, {
       userName: booking.user.name,
       bookingId: booking.id,
-      date: booking.date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+      date: booking.date.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }),
     }).catch((err) => console.error("[email] Failed to send rating request:", err));
+  }
+
+  // A cancelled or no-show ride frees its slot — notify any matching waitlisters.
+  if (
+    (status === "cancelled" || status === "no_show") &&
+    (existing.status === "confirmed" || existing.status === "in_progress")
+  ) {
+    notifyWaitlistForFreedSlot({
+      date: existing.date,
+      pickupTime: existing.pickupTime,
+      returnTime: existing.returnTime,
+      vehicle: existing.vehicleAssigned || existing.vehicleRequest,
+    }).catch((err) => console.error("[waitlist] notify failed:", err));
   }
 
   return NextResponse.json({ success: true });

@@ -99,7 +99,7 @@ function formatTime(t: string): string {
 
 export function AdminDashboard({ members, bookings, inquiries, vehicles, userRole }: AdminProps) {
   const isDriver = userRole === "driver";
-  const [activeTab, setActiveTab] = useState<"dashboard" | "bookings" | "schedule" | "members" | "inquiries" | "ratings" | "events" | "create">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "bookings" | "schedule" | "members" | "inquiries" | "ratings" | "events" | "waitlist" | "create">("dashboard");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   const pendingBookings = bookings.filter((b) => b.status === "pending");
@@ -115,6 +115,7 @@ export function AdminDashboard({ members, bookings, inquiries, vehicles, userRol
         { key: "inquiries" as const, label: `Inquiries (${newInquiries.length} new)` },
         { key: "ratings" as const, label: "Ratings" },
         { key: "events" as const, label: "Events" },
+        { key: "waitlist" as const, label: "Waitlist" },
         { key: "create" as const, label: "Create Member" },
       ];
 
@@ -173,8 +174,93 @@ export function AdminDashboard({ members, bookings, inquiries, vehicles, userRol
         {activeTab === "inquiries" && !isDriver && <InquiriesTab inquiries={inquiries} />}
         {activeTab === "ratings" && !isDriver && <RatingsTab />}
         {activeTab === "events" && !isDriver && <AdminEventsTab />}
+        {activeTab === "waitlist" && !isDriver && <WaitlistTab />}
         {activeTab === "create" && !isDriver && <CreateMemberForm />}
       </div>
+    </div>
+  );
+}
+
+/* ─── Waitlist Tab (Admin) ─── */
+interface AdminWaitlistItem {
+  id: string;
+  userName: string;
+  userEmail: string;
+  date: string;
+  pickupTime: string;
+  returnTime: string | null;
+  vehicleRequest: string | null;
+  passengers: number;
+  status: string;
+  notifiedAt: string | null;
+  createdAt: string;
+}
+
+function WaitlistTab() {
+  const [entries, setEntries] = useState<AdminWaitlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/admin/waitlist")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { setEntries(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const vLabel = (v: string | null) =>
+    v === "rolls_royce" ? "Rolls-Royce" : v === "escalade" ? "Escalade" : "No preference";
+
+  if (loading) return <p className="text-cream/40 text-sm">Loading waitlist...</p>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-lg font-light">Waitlist</h2>
+        <p className="text-xs text-cream/40">{entries.length} active</p>
+      </div>
+      <p className="text-sm text-cream/45 -mt-2">
+        Members waiting on fully-booked times. They&rsquo;re emailed automatically when a
+        matching slot is cancelled or marked no-show.
+      </p>
+      {entries.length === 0 ? (
+        <p className="text-cream/40 text-sm pt-2">No one is on the waitlist right now.</p>
+      ) : (
+        <div className="space-y-3">
+          {entries.map((e) => (
+            <div key={e.id} className="bg-cream/5 border border-cream/10 p-5">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <p className="font-medium">{e.userName}</p>
+                  <p className="text-xs text-cream/40">{e.userEmail}</p>
+                </div>
+                {e.status === "notified" && (
+                  <span className="text-xs uppercase tracking-wider px-2 py-1 bg-gold/10 text-gold">
+                    Notified
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-cream/70">
+                <div>
+                  <span className="text-cream/40 text-xs block">Date</span>
+                  {new Date(e.date).toLocaleDateString("en-US", { timeZone: "UTC" })}
+                </div>
+                <div>
+                  <span className="text-cream/40 text-xs block">Time</span>
+                  {formatTime(e.pickupTime)}{e.returnTime ? ` – ${formatTime(e.returnTime)}` : ""}
+                </div>
+                <div>
+                  <span className="text-cream/40 text-xs block">Vehicle</span>
+                  {vLabel(e.vehicleRequest)}
+                </div>
+                <div>
+                  <span className="text-cream/40 text-xs block">Passengers</span>
+                  {e.passengers}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -832,22 +918,37 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
     }
   }
 
+  // Repeat no-show detection — count no-shows per member across all bookings.
+  const noShowCounts = bookings.reduce<Record<string, number>>((acc, b) => {
+    if (b.status === "no_show") acc[b.userEmail] = (acc[b.userEmail] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-light mb-4">{isDriver ? "Assigned Bookings" : "All Bookings"}</h2>
       {bookings.map((b) => {
         const avail = availability[b.id];
+        const memberNoShows = noShowCounts[b.userEmail] || 0;
         const rrAvail = avail?.rolls_royce;
         const escAvail = avail?.escalade;
         return (
         <div key={b.id} className="bg-cream/5 border border-cream/10 p-5">
           <div className="flex items-start justify-between gap-4 mb-3">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <p className="font-medium">{b.userName}</p>
                 {b.isBirthday && (
                   <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-pink-400/15 text-pink-400 border border-pink-400/30">
                     Birthday Priority
+                  </span>
+                )}
+                {memberNoShows >= 2 && (
+                  <span
+                    className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-red-400/15 text-red-400 border border-red-400/30"
+                    title={`${memberNoShows} no-shows on record`}
+                  >
+                    {memberNoShows}× No-Show
                   </span>
                 )}
               </div>
@@ -863,16 +964,18 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
                   ? "bg-blue-400/10 text-blue-400"
                   : b.status === "completed"
                   ? "bg-cream/10 text-cream/40"
+                  : b.status === "no_show"
+                  ? "bg-orange-400/10 text-orange-400"
                   : "bg-red-400/10 text-red-400"
               }`}
             >
-              {b.status === "in_progress" ? "In Progress" : b.status}
+              {b.status === "in_progress" ? "In Progress" : b.status === "no_show" ? "No-Show" : b.status}
             </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-cream/70 mb-4">
             <div>
               <span className="text-cream/40 text-xs block">Date</span>
-              {new Date(b.date).toLocaleDateString()}
+              {new Date(b.date).toLocaleDateString("en-US", { timeZone: "UTC" })}
             </div>
             <div>
               <span className="text-cream/40 text-xs block">Time</span>
@@ -970,7 +1073,7 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
               </>
             )}
 
-            {/* Confirmed → In Progress or Cancel */}
+            {/* Confirmed → In Progress, No-Show, or Cancel */}
             {b.status === "confirmed" && (
               <>
                 <button
@@ -978,6 +1081,16 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
                   className="text-xs border border-blue-400/50 text-blue-400 px-3 py-1.5 hover:bg-blue-400/10 transition-colors"
                 >
                   Start Ride
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm(`Mark ${b.userName}'s ride as a no-show? This frees the vehicle and notifies anyone on the waitlist.`)) {
+                      updateStatus(b.id, "no_show");
+                    }
+                  }}
+                  className="text-xs border border-orange-400/50 text-orange-400 px-3 py-1.5 hover:bg-orange-400/10 transition-colors"
+                >
+                  No-Show
                 </button>
                 {!isDriver && (
                   <button
@@ -990,14 +1103,26 @@ function BookingsTab({ bookings, vehicles, isDriver }: { bookings: AdminProps["b
               </>
             )}
 
-            {/* In Progress → Completed */}
+            {/* In Progress → Completed or No-Show */}
             {b.status === "in_progress" && (
-              <button
-                onClick={() => updateStatus(b.id, "completed")}
-                className="text-xs border border-cream/30 text-cream/60 px-3 py-1.5 hover:bg-cream/10 transition-colors"
-              >
-                Complete Ride
-              </button>
+              <>
+                <button
+                  onClick={() => updateStatus(b.id, "completed")}
+                  className="text-xs border border-cream/30 text-cream/60 px-3 py-1.5 hover:bg-cream/10 transition-colors"
+                >
+                  Complete Ride
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm(`Mark ${b.userName}'s ride as a no-show?`)) {
+                      updateStatus(b.id, "no_show");
+                    }
+                  }}
+                  className="text-xs border border-orange-400/50 text-orange-400 px-3 py-1.5 hover:bg-orange-400/10 transition-colors"
+                >
+                  No-Show
+                </button>
+              </>
             )}
 
             {/* Condition photo actions for confirmed, in_progress, and completed */}
@@ -1431,7 +1556,7 @@ function MemberProfile({ memberId, vehicles, onBack }: { memberId: string; vehic
                       <div key={b.id} className="border-b border-cream/5 pb-3 last:border-0">
                         <div className="flex items-center justify-between text-sm">
                           <div>
-                            <p>{new Date(b.date).toLocaleDateString()} at {formatTime(b.pickupTime)}</p>
+                            <p>{new Date(b.date).toLocaleDateString("en-US", { timeZone: "UTC" })} at {formatTime(b.pickupTime)}</p>
                             <p className="text-xs text-cream/40">{b.pickupAddress}</p>
                           </div>
                           <span className={`text-xs uppercase tracking-wider ${
@@ -1835,7 +1960,7 @@ function RatingsTab() {
                     ))}
                   </div>
                   <p className="text-xs text-cream/40 mt-0.5">
-                    {new Date(r.bookingDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {r.bookingTime}
+                    {new Date(r.bookingDate).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })} at {r.bookingTime}
                   </p>
                   {r.vehicle && (
                     <p className="text-xs text-cream/30">{r.vehicle === "rolls_royce" ? "Rolls-Royce" : "Escalade"}</p>

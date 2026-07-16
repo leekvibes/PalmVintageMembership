@@ -2,13 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendBookingNotification, sendBookingReceived } from "@/lib/email";
+import { checkVehicleConflict } from "@/lib/scheduling";
 
-const BUFFER_HOURS = 1;
-
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
+const vehicleName = (v: string) =>
+  v === "rolls_royce" ? "Rolls-Royce" : v === "escalade" ? "Cadillac Escalade" : v;
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -27,50 +24,30 @@ export async function POST(request: Request) {
       );
     }
 
+    // If the member picked a specific vehicle, block the request when that
+    // vehicle is already spoken for at this time (pending or confirmed). Uses
+    // the shared engine so buffer + cross-midnight handling stays consistent
+    // with the admin-side hard block.
     if (vehicleRequest) {
-      const vehicle = await prisma.vehicle.findFirst({
-        where: { type: vehicleRequest },
-      });
+      const result = await checkVehicleConflict(
+        new Date(date),
+        pickupTime,
+        returnTime || null,
+        vehicleRequest,
+        undefined,
+        { includePending: true }
+      );
 
-      if (vehicle) {
-        const dayStart = new Date(date);
-        dayStart.setUTCHours(0, 0, 0, 0);
-        const dayEnd = new Date(date);
-        dayEnd.setUTCHours(23, 59, 59, 999);
-
-        const dayBookings = await prisma.booking.findMany({
-          where: {
-            date: { gte: dayStart, lte: dayEnd },
-            status: { in: ["pending", "confirmed"] },
-            OR: [
-              { vehicleAssigned: vehicleRequest },
-              { vehicleId: vehicle.id },
-              { vehicleRequest: vehicleRequest },
-            ],
+      if (result.hasConflict) {
+        return NextResponse.json(
+          {
+            error: `The ${vehicleName(vehicleRequest)} is not available at that time. Join the waitlist and we'll notify you if it opens up, or pick a different time.`,
+            conflict: true,
+            vehicleRequest,
+            availableVehicles: result.availableVehicles,
           },
-        });
-
-        const requestedStart = timeToMinutes(pickupTime);
-        const requestedEnd = returnTime
-          ? timeToMinutes(returnTime)
-          : requestedStart + 120;
-
-        const conflict = dayBookings.some((b) => {
-          const bStart = timeToMinutes(b.pickupTime);
-          const bEnd = b.returnTime
-            ? timeToMinutes(b.returnTime) + BUFFER_HOURS * 60
-            : bStart + 120 + BUFFER_HOURS * 60;
-
-          return requestedStart < bEnd && requestedEnd + BUFFER_HOURS * 60 > bStart;
-        });
-
-        if (conflict) {
-          const vehicleName = vehicleRequest === "rolls_royce" ? "Rolls-Royce" : "Escalade";
-          return NextResponse.json(
-            { error: `The ${vehicleName} is not available at that time. Please choose a different time or vehicle.` },
-            { status: 409 }
-          );
-        }
+          { status: 409 }
+        );
       }
     }
 

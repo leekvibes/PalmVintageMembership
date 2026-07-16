@@ -327,6 +327,74 @@ ${noteRow}
   });
 }
 
+export async function sendPendingReminder(
+  to: string,
+  bookings: {
+    userName: string;
+    date: string;
+    pickupTime: string;
+    returnTime: string | null;
+    vehicleRequest: string | null;
+    hoursWaiting: number;
+  }[]
+) {
+  if (!process.env.SMTP_USER) {
+    console.log("[email] SMTP not configured. Pending reminder skipped.");
+    return;
+  }
+  if (bookings.length === 0) return;
+
+  const count = bookings.length;
+  const rows = bookings
+    .map((b, i) => {
+      const isLast = i === bookings.length - 1;
+      const borderStyle = isLast ? "" : "border-bottom:1px solid rgba(245,240,232,0.06);";
+      const time = `${formatTime(b.pickupTime)}${b.returnTime ? ` – ${formatTime(b.returnTime)}` : ""}`;
+      return `<tr><td style="padding:16px 20px;${borderStyle}">
+<div style="display:flex;justify-content:space-between;align-items:baseline">
+<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;color:#f5f0e8;opacity:0.9;margin:0"><strong>${b.userName}</strong></p>
+<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#d4a017;margin:0">Waiting ${b.hoursWaiting}h</p>
+</div>
+<p style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#f5f0e8;opacity:0.6;margin:6px 0 0">${b.date} &middot; ${time} &middot; ${vehicleLabel(b.vehicleRequest)}</p>
+</td></tr>`;
+    })
+    .join("");
+
+  const body = P(`You have <strong style="color:#d4a017">${count} booking request${count > 1 ? "s" : ""}</strong> still awaiting confirmation. Please review and confirm or decline.`)
+    + detailCard(rows);
+
+  await transporter.sendMail({
+    from: `"${BUSINESS.name}" <${process.env.SMTP_USER}>`,
+    to,
+    subject: `Action Needed: ${count} booking${count > 1 ? "s" : ""} awaiting confirmation`,
+    html: emailTemplate("Bookings Awaiting Confirmation", body, "Review in Admin", process.env.NEXTAUTH_URL ? `${process.env.NEXTAUTH_URL}/admin` : undefined),
+  });
+}
+
+export async function sendWaitlistOpening(to: string, data: {
+  userName: string;
+  date: string;
+  pickupTime: string;
+  vehicleRequest: string | null;
+}) {
+  if (!process.env.SMTP_USER) {
+    console.log("[email] SMTP not configured. Waitlist opening skipped.");
+    return;
+  }
+
+  const vLabel = data.vehicleRequest ? vehicleLabel(data.vehicleRequest) : "a vehicle";
+  const body = P(`Hi ${data.userName},`)
+    + P(`Good news — <strong style="color:#d4a017;font-weight:500">${vLabel}</strong> may now be available for your requested time on <strong style="color:#f5f0e8;font-weight:500">${data.date}</strong> around ${formatTime(data.pickupTime)}.`)
+    + P("Availability is first-come — book now to secure it.");
+
+  await transporter.sendMail({
+    from: `"${BUSINESS.name}" <${process.env.SMTP_USER}>`,
+    to,
+    subject: `A Spot May Have Opened — ${data.date}`,
+    html: emailTemplate("A Spot May Have Opened", body, "Book Now", `${process.env.NEXTAUTH_URL}/dashboard`),
+  });
+}
+
 export async function sendPasswordReset(to: string, userName: string, resetUrl: string) {
   if (!process.env.SMTP_USER) {
     console.log("[email] SMTP not configured. Reset URL:", resetUrl);
